@@ -129,6 +129,10 @@ function loadCategory(storage) {
 }
 function saveCategory(storage, id) { try { storage.setItem(storageKey,id); } catch { /* Browser storage may be disabled. */ } }
 
+function wordWithIPA(variant) {
+  return variant.word + (variant.ipa ? ` /${variant.ipa}/` : '');
+}
+
 function mount() {
   const game=new WordGame();
   const $=id=>document.getElementById(id);
@@ -162,15 +166,18 @@ function mount() {
     $('ipa').textContent=entry.ipa?`/${entry.ipa}/`:'';$('ipa').hidden=!entry.ipa;
     $('example').textContent=entry.example;$('example').lang=game.source;
     $('prompt').textContent=`Выбери перевод на ${languageNames[game.target]}`;
-    $('stage-source').textContent=feedback?'':`${entry.word} · ${languageNames[game.source]}`;
+    $('stage-source').textContent=feedback?'':`${wordWithIPA(entry)} · ${languageNames[game.source]}`;
     $('flip-card').classList.toggle('flipped',feedback);
     $('front').setAttribute('aria-hidden',String(feedback));$('back').setAttribute('aria-hidden',String(!feedback));
     $('translation').textContent=feedback?game.entry[game.target].word:'';$('translation').lang=game.target;
+    const translated=game.entry[game.target];
+    $('translation-ipa').textContent=feedback&&translated.ipa?`/${translated.ipa}/`:'';
+    $('translation-ipa').hidden=!feedback||!translated.ipa;
     $('result').textContent=feedback?(game.correct?'Верно!':'Попробуй ещё раз'):'';
     $('back').classList.toggle('incorrect',feedback&&!game.correct);
     const options=$('options');options.replaceChildren();options.hidden=feedback;
     if(!feedback) for(const item of game.options) {
-      const button=document.createElement('button');button.className='option';button.lang=game.target;button.textContent=item[game.target].word;
+      const button=document.createElement('button');button.className='option';button.lang=game.target;button.textContent=wordWithIPA(item[game.target]);
       button.addEventListener('click',()=>{game.answer(item.id);render();});options.append(button);
     }
     $('advance').hidden=!feedback;

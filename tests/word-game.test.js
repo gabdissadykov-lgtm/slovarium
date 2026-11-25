@@ -116,3 +116,26 @@ test('local files, UTF-8 and no external resources or network APIs',()=>{
  assert.ok(!(html+source+css).includes('\uFFFD'));
  assert.ok(css.includes('min-width:44px;min-height:44px'));
 });
+
+test('DOM: English IPA in source, caption, answer options and revealed translation only',()=>{
+ const source=fs.readFileSync('script.js','utf8');
+ const html=fs.readFileSync('index.html','utf8');
+ for(const lang of languages){
+  const elements={};
+  for(const [,id] of html.matchAll(/id="([^"]+)"/g))elements[id]=new Element();
+  const random=Object.create(Math);
+  // A constant controls source language while allowing normal deterministic shuffling.
+  random.random=()=>({en:0.1,kk:0.4,ru:0.8}[lang]);
+  vm.runInNewContext(source,{Math:random,window:{localStorage:{getItem:()=> 'food',setItem(){}}},document:{getElementById:id=>elements[id],createElement:()=>new Element()}});
+  const e=elements;
+  assert.equal(e.word.lang,lang);
+  assert.equal(e.ipa.hidden,lang!=='en');
+  assert.equal(e['stage-source'].textContent.includes('/'),lang==='en');
+  for(const button of e.options.children)assert.equal(button.textContent.includes('/'),button.lang==='en');
+  const target=e.options.children[0].lang;
+  assert.equal(e['translation-ipa'].hidden,true);
+  e.options.children[0].click();
+  assert.equal(e['translation-ipa'].hidden,target!=='en');
+  if(target==='en')assert.match(e['translation-ipa'].textContent,/^\/.+\/$/);
+ }
+});
