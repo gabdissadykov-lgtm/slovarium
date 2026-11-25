@@ -98,12 +98,13 @@ class WordGame {
   constructor(random = Math.random) { this.random=random; this.phase='home'; this.category=null; }
   start(category) {
     if (!Object.hasOwn(vocabulary, category)) return;
+    this.firstTryCorrect=0; this.errors=0;
     this.category=category; this.deck=shuffle(vocabulary[category],this.random); this.index=0; this.newCard();
   }
   newCard() {
     this.source=languages[Math.floor(this.random()*languages.length)];
     this.targets=shuffle(languages.filter(l=>l!==this.source),this.random);
-    this.stage=0; this.cardFeedback=null; this.prepare();
+    this.stage=0; this.stageErrors=0; this.cardFeedback=null; this.prepare();
   }
   prepare() {
     const others=shuffle(vocabulary[this.category].filter(e=>e.id!==this.entry.id),this.random).slice(0,2);
@@ -114,8 +115,13 @@ class WordGame {
   answer(id) {
     if(this.phase!=='question' || !this.options.some(e=>e.id===id)) return;
     this.correct=id===this.entry.id;
+    if(this.correct) {
+      if(this.stageErrors===0) this.firstTryCorrect++;
+    } else {
+      this.errors++; this.stageErrors++;
+    }
     this.cardFeedback={target:this.target,correct:this.correct};
-    if(this.correct && this.stage===0) { this.stage=1; this.prepare(); return; }
+    if(this.correct && this.stage===0) { this.stage=1; this.stageErrors=0; this.prepare(); return; }
     this.phase='feedback';
   }
   advance() {
@@ -161,7 +167,11 @@ function mount() {
     $('topic').textContent=categories[game.category].name;
     $('progress').textContent=complete?'10 из 10 понятий':`Слово ${game.index+1} из 10 · этап ${game.stage+1} из 2`;
     $('progress-bar').value=complete?20:game.index*2+game.stage;
-    if(complete) { $('complete-title').focus();return; }
+    if(complete) {
+      $('first-try-result').textContent=`Верно с первой попытки: ${game.firstTryCorrect} из 20`;
+      $('errors-result').textContent=`Ошибок: ${game.errors}`;
+      $('complete-title').focus();return;
+    }
     const entry=game.entry[game.source],feedback=game.cardFeedback;
     const awaitingAnswer=game.phase==='question';
     $('source-language').textContent=languageNames[game.source];

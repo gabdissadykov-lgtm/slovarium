@@ -169,3 +169,67 @@ test('DOM: first correct answer keeps confirmation and immediately opens second 
   e.advance.click();assert.equal(e.progress.textContent,'Слово 2 из 10 · этап 1 из 2');
  }
 });
+
+test('results: separate translations, repeated errors, all sources and reset',()=>{
+ for(const randomValue of [0.1,0.4,0.8]){
+  for(const mistakes of [[],[2,1,1],[4],Array(20).fill(2)]){
+   const game=new WordGame(()=>randomValue);game.start('food');
+   const source=game.source;let task=0;
+   while(game.phase!=='complete'){
+    const errors=mistakes[task]||0;
+    for(let i=0;i<errors;i++){
+     game.answer(game.options.find(e=>e.id!==game.entry.id).id);
+     const count=game.errors;
+     game.answer(game.entry.id);assert.equal(game.errors,count);
+     game.advance();
+    }
+    game.answer('missing');
+    game.answer(game.entry.id);
+    if(game.phase==='feedback')game.advance();
+    task++;
+   }
+   assert.equal(task,20);assert.equal(game.source,source);
+   assert.equal(game.firstTryCorrect,20-mistakes.filter(Boolean).length);
+   assert.equal(game.errors,mistakes.reduce((sum,n)=>sum+n,0));
+   game.start('food');assert.equal(game.firstTryCorrect,0);assert.equal(game.errors,0);
+   game.answer(game.options.find(e=>e.id!==game.entry.id).id);
+   game.home();game.start('school');assert.equal(game.errors,0);assert.equal(game.firstTryCorrect,0);
+  }
+ }
+});
+
+function finishDOM(e,mistakes=[]){
+ let task=0;
+ while(e.complete.hidden){
+  const entry=vocabulary[Object.keys(categories).find(id=>categories[id].name===e.topic.textContent)]
+   .find(item=>item[e.word.lang].word===e.word.textContent);
+  for(let i=0;i<(mistakes[task]||0);i++){
+   e.options.children.find(b=>b.textContent.split(' /')[0]!==entry[b.lang].word).click();
+   e.advance.click();
+  }
+  e.options.children.find(b=>b.textContent.split(' /')[0]===entry[b.lang].word).click();
+  if(!e.advance.hidden)e.advance.click();
+  task++;
+ }
+ assert.equal(task,20);
+}
+test('DOM results: example, restart, category selection and reload without stored scores',()=>{
+ const session=domSession('food'),e=session.elements;
+ finishDOM(e,[2,1,1]);
+ assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 17 из 20');
+ assert.equal(e['errors-result'].textContent,'Ошибок: 4');
+ e.restart.click();assert.equal(e.complete.hidden,true);finishDOM(e);
+ assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 20 из 20');
+ assert.equal(e['errors-result'].textContent,'Ошибок: 0');
+ e['complete-home'].click();e.categories.children[1].click();finishDOM(e,[4]);
+ assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 19 из 20');
+ const reloaded=domSession(session.saved).elements;
+ assert.equal(reloaded.complete.hidden,true);finishDOM(reloaded);
+ assert.equal(reloaded['errors-result'].textContent,'Ошибок: 0');
+ assert.equal(reloaded['first-try-result'].textContent,'Верно с первой попытки: 20 из 20');
+ const partial=domSession('food').elements;
+ const partialEntry=vocabulary.food.find(item=>item[partial.word.lang].word===partial.word.textContent);
+ partial.options.children.find(b=>b.textContent.split(' /')[0]!==partialEntry[b.lang].word).click();
+ const afterReload=domSession('food').elements;finishDOM(afterReload);
+ assert.equal(afterReload['errors-result'].textContent,'Ошибок: 0');
+});
