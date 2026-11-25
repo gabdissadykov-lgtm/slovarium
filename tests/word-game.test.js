@@ -39,7 +39,10 @@ test('all topics: mistakes, retries, two stages, ten concepts, completion and re
     game.answer(id);assert.equal(game.correct,false); // Double answer ignored.
     game.advance();assert.equal(game.phase,'question');assert.equal(game.stage,stage);
     assert.equal(game.entry.id,id);assert.equal(game.source,source);
-    game.answer(id);assert.equal(game.correct,true);game.advance();
+    game.answer(id);
+    assert.equal(game.cardFeedback.correct,true);
+    if(stage===0){assert.equal(game.phase,'question');assert.equal(game.stage,1);assert.equal(game.entry.id,id);assert.equal(game.source,source);}
+    else {assert.equal(game.correct,true);game.advance();}
    }
   }
   assert.equal(game.phase,'complete');assert.equal(seen.size,10);
@@ -99,7 +102,8 @@ test('DOM: home, selection, hidden answers, flip, return, restored set and block
  assert.equal(e.options.children.length,3);assert.equal(e.translation.textContent,'');
  assert.equal(e.front.attributes['aria-hidden'],'false');
  assert.ok(e.word.textContent&&e.example.textContent);
- e.options.children[0].click();assert.equal(e.options.hidden,true);assert.ok(e.translation.textContent);
+ const entry=vocabulary.school.find(item=>item[e.word.lang].word===e.word.textContent);
+ e.options.children.find(button=>!button.textContent.startsWith(entry[button.lang].word)).click();assert.equal(e.options.hidden,true);assert.ok(e.translation.textContent);
  assert.equal(e.front.attributes['aria-hidden'],'true');assert.equal(e.advance.hidden,false);
  e['back-home'].click();assert.equal(e.home.hidden,false);assert.equal(e.categories.children[3].attributes['aria-pressed'],'true');
  const restored=domSession(session.saved).elements;assert.equal(restored.home.hidden,true);
@@ -137,5 +141,31 @@ test('DOM: English IPA in source, caption, answer options and revealed translati
   e.options.children[0].click();
   assert.equal(e['translation-ipa'].hidden,target!=='en');
   if(target==='en')assert.match(e['translation-ipa'].textContent,/^\/.+\/$/);
+ }
+});
+
+test('DOM: first correct answer keeps confirmation and immediately opens second translation',()=>{
+ for(const category of Object.keys(categories)){
+  const {elements:e}=domSession(category);
+  const originalWord=e.word.textContent,originalLanguage=e.word.lang;
+  const entry=vocabulary[category].find(item=>item[originalLanguage].word===originalWord);
+  const firstTarget=e.options.children[0].lang;
+  e.options.children.find(b=>b.textContent.split(' /')[0]===entry[firstTarget].word).click();
+  assert.equal(e.result.textContent,'Верно!');assert.equal(e.translation.textContent,entry[firstTarget].word);
+  assert.equal(e.translation.lang,firstTarget);assert.equal(e.back.attributes['aria-hidden'],'false');
+  assert.equal(e.options.hidden,false);assert.equal(e.options.children.length,3);
+  assert.equal(e.advance.hidden,true);assert.equal(e.prompt.hidden,false);
+  const secondTarget=e.options.children[0].lang;
+  assert.notEqual(secondTarget,firstTarget);assert.notEqual(secondTarget,originalLanguage);
+  assert.equal(e.word.textContent,originalWord);assert.equal(e.word.lang,originalLanguage);
+  const wrong=e.options.children.find(b=>b.textContent.split(' /')[0]!==entry[secondTarget].word);
+  wrong.click();assert.equal(e.result.textContent,'Попробуй ещё раз');assert.equal(e.advance.textContent,'Повторить');
+  assert.equal(e.translation.textContent,entry[secondTarget].word);assert.equal(e.options.hidden,true);
+  e.advance.click();assert.equal(e.translation.textContent,'');assert.equal(e.options.hidden,false);
+  assert.equal(e.word.textContent,originalWord);assert.equal(e.options.children[0].lang,secondTarget);
+  e.options.children.find(b=>b.textContent.split(' /')[0]===entry[secondTarget].word).click();
+  assert.equal(e.result.textContent,'Верно!');assert.equal(e.options.hidden,true);
+  assert.equal(e.prompt.hidden,true);assert.equal(e.advance.hidden,false);assert.equal(e.advance.textContent,'Следующее слово');
+  e.advance.click();assert.equal(e.progress.textContent,'Слово 2 из 10 · этап 1 из 2');
  }
 });

@@ -103,7 +103,7 @@ class WordGame {
   newCard() {
     this.source=languages[Math.floor(this.random()*languages.length)];
     this.targets=shuffle(languages.filter(l=>l!==this.source),this.random);
-    this.stage=0; this.prepare();
+    this.stage=0; this.cardFeedback=null; this.prepare();
   }
   prepare() {
     const others=shuffle(vocabulary[this.category].filter(e=>e.id!==this.entry.id),this.random).slice(0,2);
@@ -113,12 +113,14 @@ class WordGame {
   get target() { return this.targets[this.stage]; }
   answer(id) {
     if(this.phase!=='question' || !this.options.some(e=>e.id===id)) return;
-    this.correct=id===this.entry.id; this.phase='feedback';
+    this.correct=id===this.entry.id;
+    this.cardFeedback={target:this.target,correct:this.correct};
+    if(this.correct && this.stage===0) { this.stage=1; this.prepare(); return; }
+    this.phase='feedback';
   }
   advance() {
     if(this.phase!=='feedback') return;
-    if(!this.correct) { this.options=shuffle(this.options,this.random); this.phase='question'; this.correct=null; return; }
-    if(this.stage===0) { this.stage=1; this.prepare(); return; }
+    if(!this.correct) { this.options=shuffle(this.options,this.random); this.phase='question'; this.correct=null; this.cardFeedback=null; return; }
     if(this.index===this.deck.length-1) { this.phase='complete'; return; }
     this.index++; this.newCard();
   }
@@ -160,29 +162,31 @@ function mount() {
     $('progress').textContent=complete?'10 из 10 понятий':`Слово ${game.index+1} из 10 · этап ${game.stage+1} из 2`;
     $('progress-bar').value=complete?20:game.index*2+game.stage;
     if(complete) { $('complete-title').focus();return; }
-    const entry=game.entry[game.source],feedback=game.phase==='feedback';
+    const entry=game.entry[game.source],feedback=game.cardFeedback;
+    const awaitingAnswer=game.phase==='question';
     $('source-language').textContent=languageNames[game.source];
     $('word').textContent=entry.word;$('word').lang=game.source;
     $('ipa').textContent=entry.ipa?`/${entry.ipa}/`:'';$('ipa').hidden=!entry.ipa;
     $('example').textContent=entry.example;$('example').lang=game.source;
     $('prompt').textContent=`Выбери перевод на ${languageNames[game.target]}`;
-    $('stage-source').textContent=feedback?'':`${wordWithIPA(entry)} · ${languageNames[game.source]}`;
-    $('flip-card').classList.toggle('flipped',feedback);
-    $('front').setAttribute('aria-hidden',String(feedback));$('back').setAttribute('aria-hidden',String(!feedback));
-    $('translation').textContent=feedback?game.entry[game.target].word:'';$('translation').lang=game.target;
-    const translated=game.entry[game.target];
+    $('stage-source').textContent=awaitingAnswer?`${wordWithIPA(entry)} · ${languageNames[game.source]}`:'';
+    $('flip-card').classList.toggle('flipped',Boolean(feedback));
+    $('front').setAttribute('aria-hidden',String(Boolean(feedback)));$('back').setAttribute('aria-hidden',String(!feedback));
+    $('translation').textContent=feedback?game.entry[feedback.target].word:'';$('translation').lang=feedback?feedback.target:game.target;
+    const translated=game.entry[feedback?feedback.target:game.target];
     $('translation-ipa').textContent=feedback&&translated.ipa?`/${translated.ipa}/`:'';
     $('translation-ipa').hidden=!feedback||!translated.ipa;
-    $('result').textContent=feedback?(game.correct?'Верно!':'Попробуй ещё раз'):'';
-    $('back').classList.toggle('incorrect',feedback&&!game.correct);
-    const options=$('options');options.replaceChildren();options.hidden=feedback;
-    if(!feedback) for(const item of game.options) {
+    $('result').textContent=feedback?(feedback.correct?'Верно!':'Попробуй ещё раз'):'';
+    $('back').classList.toggle('incorrect',Boolean(feedback)&&!feedback.correct);
+    const options=$('options');options.replaceChildren();options.hidden=!awaitingAnswer;
+    if(awaitingAnswer) for(const item of game.options) {
       const button=document.createElement('button');button.className='option';button.lang=game.target;button.textContent=wordWithIPA(item[game.target]);
       button.addEventListener('click',()=>{game.answer(item.id);render();});options.append(button);
     }
-    $('advance').hidden=!feedback;
-    $('advance').textContent=!game.correct?'Повторить':game.stage===0?'Далее':'Следующее слово';
-    if(feedback) $('advance').focus();else $('prompt').focus();
+    $('advance').hidden=awaitingAnswer;
+    $('prompt').hidden=!awaitingAnswer;
+    $('advance').textContent=!game.correct?'Повторить':'Следующее слово';
+    if(awaitingAnswer) $('prompt').focus();else $('advance').focus();
   }
   $('back-home').addEventListener('click',()=>{game.home();render();});
   $('complete-home').addEventListener('click',()=>{game.home();render();});
