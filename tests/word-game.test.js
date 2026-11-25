@@ -76,10 +76,13 @@ test('storage: valid, absent, unknown, inherited names, denied reads/writes',()=
 
 // Minimal DOM exercises event wiring and visible content; it does not verify browser layout.
 class Element {
- constructor(){this.dataset={};this.children=[];this.hidden=false;this.attributes={};this.events={};this.textContent='';this.classList={toggle(){}};}
+ constructor(){this.dataset={};this.children=[];this.hidden=false;this.attributes={};this.events={};this._text='';this.classList={toggle(){}};}
+ get textContent(){return this._text+this.children.map(c=>c.textContent).join('');}
+ set textContent(value){this._text=value;this.children=[];}
+ removeAttribute(k){delete this.attributes[k];}
  setAttribute(k,v){this.attributes[k]=v;}
  append(...children){this.children.push(...children);}
- replaceChildren(...children){this.children=children;}
+ replaceChildren(...children){this._text='';this.children=children;}
  querySelectorAll(){return this.children;}
  addEventListener(k,fn){this.events[k]=fn;}
  focus(){}
@@ -91,7 +94,8 @@ function domSession(saved,denied=false){
  let stored=saved;
  const storage={getItem:()=>stored,setItem:(key,value)=>{stored=value;}};
  const window=denied?Object.defineProperty({},'localStorage',{get(){throw Error('denied');}}):{localStorage:storage};
- const context={window,document:{getElementById:id=>elements[id],createElement:()=>new Element()}};
+ window.addEventListener=()=>{};window.clearTimeout=()=>{};
+ const context={window,document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}};
  vm.runInNewContext(fs.readFileSync('script.js','utf8'),context);
  return {elements,get saved(){return stored;}};
 }
@@ -130,7 +134,7 @@ test('DOM: English IPA in source, caption, answer options and revealed translati
   const random=Object.create(Math);
   // A constant controls source language while allowing normal deterministic shuffling.
   random.random=()=>({en:0.1,kk:0.4,ru:0.8}[lang]);
-  vm.runInNewContext(source,{Math:random,window:{localStorage:{getItem:()=> 'food',setItem(){}}},document:{getElementById:id=>elements[id],createElement:()=>new Element()}});
+  vm.runInNewContext(source,{Math:random,window:{addEventListener(){},clearTimeout(){},localStorage:{getItem:()=> 'food',setItem(){}}},document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}});
   const e=elements;
   assert.equal(e.word.lang,lang);
   assert.equal(e.ipa.hidden,lang!=='en');
@@ -334,4 +338,42 @@ test('DOM sentences: threshold, hidden hints, retry, results, restart and reload
   assert.equal(reload.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
   e['back-home'].click();e.categories.children[0].click();assert.equal(e['sentence-exercise'].hidden,true);
  }
+});
+
+const {sentenceParts}=require('../script.js');
+test('English help: all 24 sentences, punctuation, blank exclusion and completed answer coverage',()=>{
+ let count=0;
+ for(const tasks of Object.values(sentenceBank)) for(const task of tasks){
+  if(task.lang!=='en') {assert.ok(sentenceParts(task).every(p=>!p.hint));continue;}
+  count++;
+  for(const answered of [false,true]){
+   const parts=sentenceParts(task,answered);
+   assert.equal(parts.map(p=>p.text).join(''),answered?task.text.replace('___',task.answer):task.text);
+   assert.equal(parts.filter(p=>p.hint).length,task.text.match(/[A-Za-z]+/g).length+(answered?1:0));
+   for(const part of parts){
+    if(!part.hint){assert.ok(!/[A-Za-z]/.test(part.text));continue;}
+    const h=part.hint;assert.match(h.word,/^[A-Za-z]+$/);assert.ok(h.ipa&&!h.ipa.includes('undefined'));
+    if(/^(a|an|the)$/i.test(h.word)){assert.ok(h.note);assert.equal(h.kk,undefined);assert.equal(h.ru,undefined);}
+    else {assert.ok(h.kk,part.text);assert.ok(h.ru,part.text);}
+    if(h.phrase) assert.ok(!h.phrase.includes('___'));
+    if(!answered) assert.ok(!new RegExp(`\\b${task.answer}\\b`,'i').test(JSON.stringify(h)),task.text);
+   }
+  }
+ }
+ assert.equal(count,24);
+});
+test('English help: contextual verbs, plurals, articles and idioms have the intended meanings',()=>{
+ const hints=(category,index)=>sentenceParts(sentenceBank[category][index],true).filter(p=>p.hint).map(p=>p.hint);
+ const drink=hints('food',2);
+ assert.equal(drink.find(h=>h.word==='drink').kk,'ішемін');
+ assert.equal(drink.find(h=>h.word==='drink').ru,'пью');
+ assert.equal(drink.find(h=>h.word==='glasses').ru,'стаканы');
+ assert.equal(drink.find(h=>h.word==='day').phrase,'every day');
+ assert.equal(hints('travel',3).find(h=>h.word==='books').ru,'бронирует');
+ assert.equal(hints('home',1).find(h=>h.word==='window').ru,'окно');
+ assert.equal(hints('school',3).find(h=>h.word==='pages').ru,'страницах');
+ assert.ok(hints('school',3).find(h=>h.word==='the').note.includes('страницах'));
+ assert.equal(hints('school',2).find(h=>h.word==='starts').ru,'начинается');
+ assert.equal(hints('school',2).find(h=>h.word==='nine').phrase,'at nine');
+ assert.equal(hints('other',1).filter(h=>h.word.toLowerCase()==='the')[1].ipa,'ði');
 });
