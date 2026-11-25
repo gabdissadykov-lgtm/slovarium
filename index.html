@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Слово за словом — карточки</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><a class="brand" href="./"><span class="logo">С</span> слово за словом</a><span class="header-note">Маленькие шаги. Большой словарный запас.</span></header>
+<main>
+<div class="eyebrow">ТВОЯ ЕЖЕДНЕВНАЯ ПРАКТИКА</div>
+<h1>Новые слова.<br><span>Знакомый мир.</span></h1>
+<p class="intro">Выбери тему и язык. Всего 10 слов — и мир вокруг<br class="desktop"> станет немного понятнее.</p>
+<section class="workspace" aria-label="Рубрикатор слов">
+<div class="toolbar"><h2>Что изучим сегодня?</h2><div class="languages" aria-label="Язык слов"><button data-lang="en" aria-pressed="true">English</button><button data-lang="ru" aria-pressed="false">Русский</button><button data-lang="kk" aria-pressed="false">Қазақша</button></div></div>
+<div class="categories" aria-label="Темы"><button data-category="food" aria-pressed="true"><span>🍎</span>Еда<small>10 слов</small></button><button data-category="transport" aria-pressed="false"><span>🚌</span>Транспорт<small>10 слов</small></button><button data-category="home" aria-pressed="false"><span>🏡</span>Дом<small>10 слов</small></button><button data-category="other" aria-pressed="false"><span>✨</span>Другое<small>10 слов</small></button></div>
+<div class="section-label"><div><h2 id="category-title">Еда</h2><span id="set-description">English · набор из 10 слов</span></div><button id="practice" class="practice">Практиковаться</button></div>
+<div id="practice-panel" hidden><div class="practice-top"><span id="progress"></span><button id="close-practice">Закрыть</button></div><p>Угадай слово по примеру</p><p id="clue" class="clue"></p><div id="answer" hidden></div><div class="practice-actions"><button id="reveal">Показать слово</button><button id="next" hidden>Следующая карточка</button></div></div>
+<div id="cards" class="cards" aria-live="polite"></div>
+</section>
+<footer><span>40 слов на каждом языке</span><span>Учись в своём ритме ♡</span></footer>
+</main><script src="data/words.js"></script><script src="app.js"></script></body></html>
