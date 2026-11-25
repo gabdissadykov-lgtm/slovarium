@@ -1,5 +1,5 @@
 const state = {language:'en', category:'food', index:0};
-const labels = {food:'Еда', transport:'Транспорт', home:'Дом', other:'Другое'};
+const labels = {food:'Еда', transport:'Транспорт', home:'Дом', school:'Школа', travel:'Путешествие', other:'Другое'};
 const languages = {en:'English', ru:'Русский', kk:'Қазақша'};
 const cards = document.getElementById('cards');
 const panel = document.getElementById('practice-panel');
