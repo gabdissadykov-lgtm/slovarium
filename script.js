@@ -85,6 +85,383 @@ const vocabulary = Object.fromEntries(Object.entries(rows).map(([category, entri
   entries.map(r => ({id:r[0], en:{word:r[0], ipa:r[1], example:r[2]},
     ru:{word:r[3], example:r[4]}, kk:{word:r[5], example:r[6]}}))
 ]));
+// Curated sentence tasks: four English, four Kazakh and two Russian per topic.
+const sentenceRows = {
+  "food": [
+    [
+      "After lunch, I pick a red ___ from the tree.",
+      "apple",
+      "bread",
+      "cheese"
+    ],
+    [
+      "Every morning, Dad slices fresh ___ for our toast.",
+      "bread",
+      "water",
+      "tea"
+    ],
+    [
+      "Every day, I drink five glasses of ___.",
+      "water",
+      "bread",
+      "cheese"
+    ],
+    [
+      "The farmer gets fresh ___ from the cow every morning.",
+      "milk",
+      "rice",
+      "tea"
+    ],
+    [
+      "Анам бүгін сүттен дәмді ___ жасап, дастарқанға қойды.",
+      "ірімшік",
+      "нан",
+      "күріш"
+    ],
+    [
+      "Әжем бүгін палауға ақ ___ салып, жақсылап араластырды.",
+      "күріш",
+      "шай",
+      "нан"
+    ],
+    [
+      "Түскі асқа анам ет пен көкөністен ыстық ___ пісірді.",
+      "сорпа",
+      "сүт",
+      "ірімшік"
+    ],
+    [
+      "Тауық бүгін ұясына бір ақ ___ салды.",
+      "жұмыртқа",
+      "алма",
+      "нан"
+    ],
+    [
+      "Сегодня дедушка поймал в озере большую ___ для ужина.",
+      "рыбу",
+      "булку",
+      "грушу"
+    ],
+    [
+      "Бабушка заварила в чайнике ароматный ___ с лимоном.",
+      "чай",
+      "сыр",
+      "рис"
+    ]
+  ],
+  "transport": [
+    [
+      "Our family ___ has four wheels and five seats.",
+      "car",
+      "bicycle",
+      "boat"
+    ],
+    [
+      "The city ___ carries thirty passengers along the road.",
+      "bus",
+      "bicycle",
+      "boat"
+    ],
+    [
+      "The long ___ carries passengers along the railway every morning.",
+      "train",
+      "taxi",
+      "ship"
+    ],
+    [
+      "We watch a passenger ___ fly above the clouds today.",
+      "plane",
+      "tram",
+      "boat"
+    ],
+    [
+      "Мен бүгін екі дөңгелекті ___ теуіп, саябаққа бардым.",
+      "велосипед",
+      "кеме",
+      "ұшақ"
+    ],
+    [
+      "Әкем телефоннан ___ шақырып, жүргізушіге баратын мекенжайымызды айтты.",
+      "такси",
+      "пойыз",
+      "кеме"
+    ],
+    [
+      "Үлкен теңіз ___ жүздеген жолаушыны басқа елге жеткізді.",
+      "кемесі",
+      "автобусы",
+      "трамвайы"
+    ],
+    [
+      "Атам шағын ___ екі ескекпен есіп, көлге шықты.",
+      "қайықты",
+      "ұшақты",
+      "пойызды"
+    ],
+    [
+      "По дороге мчится двухколёсный ___ с громким мотором.",
+      "мотоцикл",
+      "велосипед",
+      "корабль"
+    ],
+    [
+      "По городским рельсам утром идёт ___ с пассажирами.",
+      "трамвай",
+      "автобус",
+      "самолёт"
+    ]
+  ],
+  "home": [
+    [
+      "Our family lives in a small ___ with a garden.",
+      "house",
+      "chair",
+      "mirror"
+    ],
+    [
+      "My upstairs ___ has four walls and a small window.",
+      "room",
+      "carpet",
+      "lamp"
+    ],
+    [
+      "Please close the front ___ after entering our house.",
+      "door",
+      "bed",
+      "table"
+    ],
+    [
+      "Through the closed ___, I watch birds in our garden.",
+      "window",
+      "carpet",
+      "door"
+    ],
+    [
+      "Біз бүгін асүйдегі ___ басына отырып, кешкі ас іштік.",
+      "үстелдің",
+      "айнаның",
+      "шамның"
+    ],
+    [
+      "Мен сабақта арқалығы бар ___ отырып, тапсырма жаздым.",
+      "орындыққа",
+      "айнаға",
+      "терезеге"
+    ],
+    [
+      "Кешке ұйықтар алдында жұмсақ ___ жатып, көрпемді жамылдым.",
+      "төсекке",
+      "үстелге",
+      "шамға"
+    ],
+    [
+      "Кешке электр ___ қосып, жарықта кітап оқыдым.",
+      "шамын",
+      "кілемін",
+      "есігін"
+    ],
+    [
+      "Утром я вижу своё отражение в ___ над раковиной.",
+      "зеркале",
+      "ковре",
+      "стуле"
+    ],
+    [
+      "Мама постелила на пол мягкий ___ с узорами.",
+      "ковёр",
+      "стул",
+      "дом"
+    ]
+  ],
+  "school": [
+    [
+      "Our ___ explains the new lesson to thirty children.",
+      "teacher",
+      "ruler",
+      "notebook"
+    ],
+    [
+      "The new ___ sits at his desk and learns English.",
+      "student",
+      "pencil",
+      "board"
+    ],
+    [
+      "Our maths ___ starts at nine and lasts forty minutes.",
+      "lesson",
+      "backpack",
+      "ruler"
+    ],
+    [
+      "I write my homework on the pages of my ___.",
+      "notebook",
+      "ruler",
+      "backpack"
+    ],
+    [
+      "Мен бүгін суретті ___ салып, өшіргішпен бір сызықты өшірдім.",
+      "қарындашпен",
+      "арқасөмкемен",
+      "тақтамен"
+    ],
+    [
+      "Мен түзу сызық сызу үшін ұзын ___ қолдандым.",
+      "сызғышты",
+      "арқасөмкені",
+      "сыныпты"
+    ],
+    [
+      "Мен кітаптарымды ___ салып, оны екі иығыма ілдім.",
+      "арқасөмкеге",
+      "сызғышқа",
+      "қарындашқа"
+    ],
+    [
+      "Мұғалім бүгін бормен үлкен ___ үш сан жазды.",
+      "тақтаға",
+      "арқасөмкеге",
+      "сызғышқа"
+    ],
+    [
+      "На уроке я выполнил сложное ___ из учебника.",
+      "задание",
+      "рюкзак",
+      "карандаш"
+    ],
+    [
+      "Наш просторный ___ вмещает двадцать парт и большую доску.",
+      "класс",
+      "карандаш",
+      "рюкзак"
+    ]
+  ],
+  "travel": [
+    [
+      "At the border, Dad shows his ___ with his photo.",
+      "passport",
+      "suitcase",
+      "beach"
+    ],
+    [
+      "The conductor checks my ___ before I board the train.",
+      "ticket",
+      "suitcase",
+      "hotel"
+    ],
+    [
+      "I pack clothes in my ___ before our summer trip.",
+      "suitcase",
+      "ticket",
+      "passport"
+    ],
+    [
+      "Our family books a room in a ___ near the sea.",
+      "hotel",
+      "map",
+      "ticket"
+    ],
+    [
+      "Біз ұшаққа отыру үшін таңертең үлкен ___ келдік.",
+      "әуежайға",
+      "жағажайға",
+      "қонақүйге"
+    ],
+    [
+      "Әкем қағаз ___ қарап, қалалар арасындағы жолды тапты.",
+      "картаға",
+      "билетке",
+      "төлқұжатқа"
+    ],
+    [
+      "Біз бүгін құмды ___ барып, теңіз суына шомылдық.",
+      "жағажайға",
+      "әуежайға",
+      "қонақүйге"
+    ],
+    [
+      "Бұл үлкен ___ көптеген көшелер мен биік үйлер бар.",
+      "қалада",
+      "шабаданда",
+      "төлқұжатта"
+    ],
+    [
+      "Приезжий ___ фотографирует памятники и слушает рассказ экскурсовода.",
+      "турист",
+      "чемодан",
+      "паспорт"
+    ],
+    [
+      "Наше двухнедельное ___ по стране началось с поездки в горы.",
+      "путешествие",
+      "море",
+      "полотенце"
+    ]
+  ],
+  "other": [
+    [
+      "Every evening, I read a ___ with colourful pages.",
+      "book",
+      "ball",
+      "pen"
+    ],
+    [
+      "The bright ___ rises in the east every morning.",
+      "sun",
+      "cat",
+      "flower"
+    ],
+    [
+      "A tall ___ grows wooden branches beside our house.",
+      "tree",
+      "ball",
+      "dog"
+    ],
+    [
+      "Our small ___ meows softly beside the kitchen door.",
+      "cat",
+      "dog",
+      "tree"
+    ],
+    [
+      "Аулада үлкен ___ үріп, үйімізді бөтен адамдардан күзетеді.",
+      "ит",
+      "мысық",
+      "гүл"
+    ],
+    [
+      "Ара бүгін әдемі ___ күлтесіне қонып, нәр жинады.",
+      "гүлдің",
+      "доптың",
+      "қаламның"
+    ],
+    [
+      "Балалар бүгін дөңгелек ___ аяқпен теуіп, қақпаға соқты.",
+      "допты",
+      "кітапты",
+      "қаламды"
+    ],
+    [
+      "Мен бүгін көк сиялы ___ хат жаздым.",
+      "қаламмен",
+      "доппен",
+      "гүлмен"
+    ],
+    [
+      "Каждое утро дети идут в ___ учиться у учителей.",
+      "школу",
+      "реку",
+      "пекарню"
+    ],
+    [
+      "Мой лучший ___ всегда поддерживает меня в трудную минуту.",
+      "друг",
+      "мяч",
+      "цветок"
+    ]
+  ]
+};
+const sentenceBank = Object.fromEntries(Object.entries(sentenceRows).map(([category, tasks]) => [category, tasks.map((r,i)=>({id:vocabulary[category][i].id, lang:i<4?'en':i<8?'kk':'ru', text:r[0], answer:r[1], choices:r.slice(1)}))]));
+
 const storageKey = 'slovarium.category';
 function shuffle(items, random = Math.random) {
   const result = [...items];
@@ -98,6 +475,7 @@ class WordGame {
   constructor(random = Math.random) { this.random=random; this.phase='home'; this.category=null; }
   start(category) {
     if (!Object.hasOwn(vocabulary, category)) return;
+    this.unlocked=false; this.sentenceGame=null;
     this.firstTryCorrect=0; this.errors=0;
     this.category=category; this.deck=shuffle(vocabulary[category],this.random); this.index=0; this.newCard();
   }
@@ -127,10 +505,37 @@ class WordGame {
   advance() {
     if(this.phase!=='feedback') return;
     if(!this.correct) { this.options=shuffle(this.options,this.random); this.phase='question'; this.correct=null; this.cardFeedback=null; return; }
-    if(this.index===this.deck.length-1) { this.phase='complete'; return; }
+    if(this.index===this.deck.length-1) { this.phase='complete'; this.unlocked=this.firstTryCorrect>=16; return; }
     this.index++; this.newCard();
   }
-  home() { this.phase='home'; }
+  startSentences() {
+    if(!this.unlocked || !['complete','sentence-complete'].includes(this.phase)) return;
+    this.sentenceGame=new SentenceGame(sentenceBank[this.category],this.random);
+    this.phase='sentences';
+  }
+  home() { this.phase='home'; this.unlocked=false; this.sentenceGame=null; }
+}
+class SentenceGame {
+  constructor(tasks, random=Math.random) {
+    this.random=random; this.deck=shuffle(tasks,random); this.index=0;
+    this.firstTryCorrect=0; this.errors=0; this.taskErrors=0; this.prepare();
+  }
+  get task() { return this.deck[this.index]; }
+  prepare() { this.options=shuffle(this.task.choices,this.random); this.phase='question'; this.correct=null; }
+  answer(value) {
+    if(this.phase!=='question' || !this.options.includes(value)) return;
+    this.correct=value===this.task.answer;
+    if(this.correct) { if(this.taskErrors===0) this.firstTryCorrect++; }
+    else { this.errors++; this.taskErrors++; }
+    this.phase='feedback';
+  }
+  advance() {
+    if(this.phase!=='feedback') return;
+    if(!this.correct) { this.prepare(); return; }
+    if(this.index===this.deck.length-1) { this.phase='complete'; return; }
+    this.index++; this.taskErrors=0; this.prepare();
+  }
+
 }
 function loadCategory(storage) {
   try { const id=storage.getItem(storageKey); return Object.hasOwn(categories,id)?id:null; } catch { return null; }
@@ -160,17 +565,47 @@ function mount() {
     render();
   }
   function render() {
-    const home=game.phase==='home',complete=game.phase==='complete';
-    $('home').hidden=!home;$('lesson').hidden=home;$('exercise').hidden=home||complete;$('complete').hidden=!complete;
+    const home=game.phase==='home',sentenceMode=game.phase==='sentences'||game.phase==='sentence-complete';
+    const complete=game.phase==='complete'||game.phase==='sentence-complete';
+    $('sentence-exercise').hidden=!sentenceMode||complete;
+    $('exercise').hidden=home||complete||sentenceMode;
+    $('home').hidden=!home;$('lesson').hidden=home;$('exercise').hidden=home||complete||sentenceMode;$('complete').hidden=!complete;
     grid.querySelectorAll('button').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.category===saved));});
     if(home) { $('home-title').focus();return; }
     $('topic').textContent=categories[game.category].name;
+    $('progress-bar').max=sentenceMode?10:20;
     $('progress').textContent=complete?'10 из 10 понятий':`Слово ${game.index+1} из 10 · этап ${game.stage+1} из 2`;
     $('progress-bar').value=complete?20:game.index*2+game.stage;
     if(complete) {
-      $('first-try-result').textContent=`Верно с первой попытки: ${game.firstTryCorrect} из 20`;
-      $('errors-result').textContent=`Ошибок: ${game.errors}`;
+      const score=sentenceMode?game.sentenceGame:game,total=sentenceMode?10:20;
+      $('complete-title').textContent=sentenceMode?'Предложения пройдены':'Набор пройден';
+      $('complete-note').textContent=sentenceMode?'Все 10 предложений пройдены!':'Все 10 понятий — на трёх языках. Отличная работа!';
+      $('unlock-message').hidden=sentenceMode||game.unlocked;
+      $('to-sentences').hidden=sentenceMode||!game.unlocked;
+      $('restart').textContent=sentenceMode?'Повторить предложения':'Повторить набор';
+      $('progress').textContent=sentenceMode?'10 из 10 предложений':'10 из 10 понятий';
+      $('progress-bar').value=total;
+      $('first-try-result').textContent=`Верно с первой попытки: ${score.firstTryCorrect} из ${total}`;
+      $('errors-result').textContent=`Ошибок: ${score.errors}`;
       $('complete-title').focus();return;
+    }
+    if(sentenceMode) {
+      const sg=game.sentenceGame,task=sg.task,awaiting=sg.phase==='question';
+      $('progress').textContent=`Предложение ${sg.index+1} из 10`;
+      $('progress-bar').value=sg.index;
+      $('sentence-language').textContent=languageNames[task.lang];
+      $('sentence-text').textContent=awaiting?task.text:task.text.replace('___',task.answer);
+      $('sentence-text').lang=task.lang;
+      $('sentence-result').textContent=awaiting?'':sg.correct?'Верно!':'Попробуй ещё раз';
+      $('sentence-options').replaceChildren(); $('sentence-options').hidden=!awaiting;
+      if(awaiting) for(const value of sg.options) {
+        const button=document.createElement('button');button.className='option';button.lang=task.lang;button.textContent=value;
+        button.addEventListener('click',()=>{sg.answer(value);render();});$('sentence-options').append(button);
+      }
+      $('sentence-advance').hidden=awaiting;
+      $('sentence-advance').textContent=sg.correct?'Следующее предложение':'Повторить';
+      if(awaiting) $('sentence-text').focus();else $('sentence-advance').focus();
+      return;
     }
     const entry=game.entry[game.source],feedback=game.cardFeedback;
     const awaitingAnswer=game.phase==='question';
@@ -200,9 +635,17 @@ function mount() {
   }
   $('back-home').addEventListener('click',()=>{game.home();render();});
   $('complete-home').addEventListener('click',()=>{game.home();render();});
-  $('restart').addEventListener('click',()=>start(game.category));
+  $('restart').addEventListener('click',()=>{
+    if(game.phase==='sentence-complete') { game.startSentences();render(); } else start(game.category);
+  });
+  $('to-sentences').addEventListener('click',()=>{game.startSentences();render();});
+  $('sentence-advance').addEventListener('click',()=>{
+    game.sentenceGame.advance();
+    if(game.sentenceGame.phase==='complete') game.phase='sentence-complete';
+    render();
+  });
   $('advance').addEventListener('click',()=>{game.advance();render();});
   if(saved) start(saved);else render();
 }
-if(typeof module!=='undefined' && module.exports) module.exports={vocabulary,categories,languages,WordGame,shuffle,loadCategory,saveCategory,storageKey};
+if(typeof module!=='undefined' && module.exports) module.exports={sentenceBank,SentenceGame,vocabulary,categories,languages,WordGame,shuffle,loadCategory,saveCategory,storageKey};
 if(typeof document!=='undefined') mount();

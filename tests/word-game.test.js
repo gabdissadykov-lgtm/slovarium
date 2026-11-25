@@ -233,3 +233,84 @@ test('DOM results: example, restart, category selection and reload without store
  const afterReload=domSession('food').elements;finishDOM(afterReload);
  assert.equal(afterReload['errors-result'].textContent,'Ошибок: 0');
 });
+
+const {sentenceBank,SentenceGame}=require('../script.js');
+function finishGame(game,failedTasks=0){
+ let task=0;
+ while(game.phase!=='complete'){
+  if(task<failedTasks){game.answer(game.options.find(e=>e.id!==game.entry.id).id);game.advance();}
+  game.answer(game.entry.id);if(game.phase==='feedback')game.advance();task++;
+ }
+}
+test('sentence access: 15 blocked, 16 and 20 allowed, retries cannot raise threshold; reset',()=>{
+ for(const score of [15,16,20]){
+  const game=new WordGame(seeded(score));game.start('food');game.startSentences();assert.equal(game.phase,'question');
+  finishGame(game,20-score);assert.equal(game.firstTryCorrect,score);assert.equal(game.unlocked,score>=16);
+  game.startSentences();assert.equal(game.phase,score>=16?'sentences':'complete');
+  game.home();assert.equal(game.unlocked,false);game.startSentences();assert.equal(game.phase,'home');
+  game.start('food');assert.equal(game.unlocked,false);
+ }
+});
+test('all sentence topics: same ten concepts, exact language distribution, choices and single gap',()=>{
+ for(const [category,tasks] of Object.entries(sentenceBank)){
+  assert.deepEqual(tasks.map(t=>t.id),vocabulary[category].map(e=>e.id));
+  for(let seed=1;seed<=20;seed++){
+   const sg=new SentenceGame(tasks,seeded(seed));
+   assert.deepEqual(sg.deck.reduce((counts,t)=>{counts[t.lang]++;return counts;},{en:0,kk:0,ru:0}),{en:4,kk:4,ru:2});
+   assert.equal(new Set(sg.deck.map(t=>t.id)).size,10);
+  }
+  for(const t of tasks){
+   assert.equal(t.text.split('___').length,2);assert.equal(new Set(t.choices).size,3);
+   assert.equal(t.choices.filter(v=>v===t.answer).length,1);
+   const words=t.text.replace('___',t.answer).split(/\s+/).length;
+   assert.ok(words<=12&&words>=(t.lang==='kk'?5:7),t.text);
+  }
+ }
+});
+test('sentence errors: four in three tasks yields 7/10; no bypass or double answers',()=>{
+ const sg=new SentenceGame(sentenceBank.food,seeded(3));
+ for(let i=0;i<10;i++){
+  const task=sg.task;
+  sg.advance();assert.equal(sg.phase,'question');sg.answer('missing');assert.equal(sg.phase,'question');
+  for(let n=0;n<([2,1,1][i]||0);n++){
+   sg.answer(sg.options.find(v=>v!==task.answer));assert.equal(sg.phase,'feedback');assert.equal(sg.correct,false);
+   const errors=sg.errors;sg.answer(task.answer);assert.equal(sg.errors,errors);
+   sg.advance();assert.equal(sg.task,task);assert.equal(sg.phase,'question');
+  }
+  sg.answer(task.answer);assert.equal(sg.correct,true);sg.advance();
+ }
+ assert.equal(sg.phase,'complete');assert.equal(sg.firstTryCorrect,7);assert.equal(sg.errors,4);
+});
+test('DOM sentences: threshold, hidden hints, retry, results, restart and reload',()=>{
+ for(const score of [15,16,20]){
+  const session=domSession('food'),e=session.elements;
+  finishDOM(e,Array(20-score).fill(1));
+  assert.equal(e['to-sentences'].hidden,score<16);assert.equal(e['unlock-message'].hidden,score>=16);
+  if(score<16)continue;
+  e['to-sentences'].click();assert.equal(e.exercise.hidden,true);assert.equal(e['sentence-exercise'].hidden,false);
+  const counts={en:0,kk:0,ru:0};
+  for(let i=0;i<10;i++){
+   const text=e['sentence-text'].textContent;
+   const task=sentenceBank.food.find(t=>t.text===text);assert.ok(task);counts[task.lang]++;
+   assert.equal(e['sentence-options'].children.length,3);assert.equal(e['sentence-text'].lang,task.lang);
+   assert.equal(e['sentence-result'].textContent,'');
+   for(let j=0;j<([2,1,1][i]||0);j++){
+    e['sentence-options'].children.find(b=>b.textContent!==task.answer).click();
+    assert.equal(e['sentence-text'].textContent,task.text.replace('___',task.answer));
+    assert.equal(e['sentence-options'].hidden,true);assert.equal(e['sentence-advance'].textContent,'Повторить');
+    e['sentence-advance'].click();assert.equal(e['sentence-text'].textContent,text);
+   }
+   e['sentence-options'].children.find(b=>b.textContent===task.answer).click();
+   assert.equal(e['sentence-result'].textContent,'Верно!');e['sentence-advance'].click();
+  }
+  assert.deepEqual(counts,{en:4,kk:4,ru:2});
+  assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 7 из 10');
+  assert.equal(e['errors-result'].textContent,'Ошибок: 4');
+  assert.equal(e.restart.textContent,'Повторить предложения');
+  e.restart.click();assert.equal(e['sentence-exercise'].hidden,false);assert.equal(e.complete.hidden,true);
+  const reload=domSession(session.saved).elements;
+  assert.equal(reload['sentence-exercise'].hidden,true);assert.equal(reload.topic.textContent,'Еда');
+  assert.equal(reload.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
+  e['back-home'].click();e.categories.children[0].click();assert.equal(e['sentence-exercise'].hidden,true);
+ }
+});
