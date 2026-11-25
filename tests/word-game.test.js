@@ -267,6 +267,27 @@ test('all sentence topics: same ten concepts, exact language distribution, choic
   }
  }
 });
+test('sentence runs and restarts: actual tasks keep 4/4/2 and vary their order in every topic',()=>{
+ for(const category of Object.keys(sentenceBank)){
+  const game=new WordGame(seeded(42));game.start(category);finishGame(game);
+  const orders=new Set(), languageOrders=new Set();
+  for(let run=0;run<100;run++){
+   game.startSentences();assert.equal(game.phase,'sentences');
+   const sg=game.sentenceGame, counts={en:0,kk:0,ru:0}, ids=[], langs=[];
+   while(sg.phase!=='complete'){
+    const task=sg.task;counts[task.lang]++;ids.push(task.id);langs.push(task.lang);
+    sg.answer(sg.options.find(value=>value!==task.answer));sg.advance();
+    assert.equal(sg.task,task);
+    sg.answer(task.answer);sg.advance();
+   }
+   assert.equal(ids.length,10);assert.equal(new Set(ids).size,10);
+   assert.deepEqual(counts,{en:4,kk:4,ru:2},`${category}, run ${run}`);
+   orders.add(ids.join(','));languageOrders.add(langs.join(','));
+   game.phase='sentence-complete';
+  }
+  assert.ok(orders.size>1,category);assert.ok(languageOrders.size>1,category);
+ }
+});
 test('sentence errors: four in three tasks yields 7/10; no bypass or double answers',()=>{
  const sg=new SentenceGame(sentenceBank.food,seeded(3));
  for(let i=0;i<10;i++){
