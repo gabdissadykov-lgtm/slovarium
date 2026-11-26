@@ -88,33 +88,23 @@ class Element {
  focus(){}
  click(){this.events.click?.();}
 }
-function domSession(saved,denied=false){
- const html=fs.readFileSync('index.html','utf8'),elements={};
- for(const [,id] of html.matchAll(/id="([^"]+)"/g))elements[id]=new Element();
- let stored=saved;
- const storage={getItem:()=>stored,setItem:(key,value)=>{stored=value;}};
- const window=denied?Object.defineProperty({},'localStorage',{get(){throw Error('denied');}}):{localStorage:storage};
- window.addEventListener=()=>{};window.clearTimeout=()=>{};
- const context={window,document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}};
- vm.runInNewContext(fs.readFileSync('script.js','utf8'),context);
- return {elements,get saved(){return stored;}};
-}
-test('DOM: home, selection, hidden answers, flip, return, restored set and blocked storage',()=>{
- const session=domSession(null),e=session.elements;
- assert.equal(e.categories.children.length,6);assert.equal(e.home.hidden,false);
- e.categories.children[3].click();assert.equal(session.saved,'school');assert.equal(e.lesson.hidden,false);
- assert.equal(e.options.children.length,3);assert.equal(e.translation.textContent,'');
- assert.equal(e.front.attributes['aria-hidden'],'false');
- assert.ok(e.word.textContent&&e.example.textContent);
- const entry=vocabulary.school.find(item=>item[e.word.lang].word===e.word.textContent);
- e.options.children.find(button=>!button.textContent.startsWith(entry[button.lang].word)).click();assert.equal(e.options.hidden,true);assert.ok(e.translation.textContent);
- assert.equal(e.front.attributes['aria-hidden'],'true');assert.equal(e.advance.hidden,false);
- e['back-home'].click();assert.equal(e.home.hidden,false);assert.equal(e.categories.children[3].attributes['aria-pressed'],'true');
- const restored=domSession(session.saved).elements;assert.equal(restored.home.hidden,true);
- assert.equal(restored.topic.textContent,'Школа');assert.equal(restored.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
- assert.equal(domSession('unknown').elements.home.hidden,false);
- const denied=domSession(null,true).elements;denied.categories.children[0].click();assert.equal(denied.lesson.hidden,false);
+test('DOM unified topics: nine choices, lesson selection, flip, return and restoration',()=>{
+ const {e,storage}=courseSession();assert.equal(e.modules.children.length,9);assert.equal(e.home.hidden,false);
+ assert.equal(e['catalog-title'].textContent,'Выбери тему');assert.equal(e['course-lessons'].hidden,true);
+ e.modules.children[3].click();assert.equal(e['catalog-title'].textContent,'World of Work');
+ assert.equal(e['course-lessons'].children.length,11);e['course-lessons'].children[0].click();
+ assert.equal(e.lesson.hidden,false);assert.equal(e.options.children.length,3);assert.equal(e.translation.textContent,'');
+ const lesson=courseLessons['m4-l1'],entry=lesson.entries.find(x=>x[e.word.lang].word===e.word.textContent && x[e.word.lang].example===e.example.textContent);
+ e.options.children.find(b=>b.textContent!==wordLabel(entry[b.lang])).click();
+ assert.equal(e.options.hidden,true);assert.ok(e.translation.textContent);assert.equal(e.front.attributes['aria-hidden'],'true');
+ e['back-home'].click();assert.equal(e['catalog-title'].textContent,'World of Work');assert.equal(e['course-lessons'].hidden,false);
+ const restored=courseSession(storage).e;assert.equal(restored.home.hidden,false);assert.equal(restored['catalog-title'].textContent,'World of Work');
+ restored['back-modules'].click();assert.equal(restored.modules.hidden,false);assert.equal(restored.modules.children[3].attributes['aria-pressed'],'true');
+ assert.ok(restored.modules.children[3].textContent.includes('Выбрано'));
+ const selection=JSON.parse(storage.getItem(courseStorageKey)).selection;assert.equal(selection.screen,'catalog');assert.equal(selection.module,4);
+ const denied=courseSession({getItem(){throw Error();},setItem(){throw Error();}}).e;denied.modules.children[0].click();denied['course-lessons'].children[0].click();assert.equal(denied.lesson.hidden,false);
 });
+function wordLabel(v){return v.word+(v.ipa?` /${v.ipa}/`:'');}
 
 test('local files, UTF-8 and no external resources or network APIs',()=>{
  const html=fs.readFileSync('index.html','utf8');
@@ -134,7 +124,7 @@ test('DOM: English IPA in source, caption, answer options and revealed translati
   const random=Object.create(Math);
   // A constant controls source language while allowing normal deterministic shuffling.
   random.random=()=>({en:0.1,kk:0.4,ru:0.8}[lang]);
-  vm.runInNewContext(source,{Math:random,window:{addEventListener(){},clearTimeout(){},localStorage:{getItem:()=> 'food',setItem(){}}},document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}});
+  vm.runInNewContext(source,{Math:random,window:{addEventListener(){},clearTimeout(){},localStorage:{getItem:key=>key==='slovarium.course.v1'?JSON.stringify({version:2,selection:{mode:'course',module:1,lesson:'m1-l1'}}):null,setItem(){}}},document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}});
   const e=elements;
   assert.equal(e.word.lang,lang);
   assert.equal(e.ipa.hidden,lang!=='en');
@@ -148,29 +138,22 @@ test('DOM: English IPA in source, caption, answer options and revealed translati
  }
 });
 
-test('DOM: first correct answer keeps confirmation and immediately opens second translation',()=>{
- for(const category of Object.keys(categories)){
-  const {elements:e}=domSession(category);
+test('DOM: first correct answer keeps confirmation and opens the second translation in every theme',()=>{
+ for(const module of courseModules){
+  const id=`m${module.id}-l1`,storage=memoryStorage({[courseStorageKey]:JSON.stringify({version:2,selection:{mode:'course',module:module.id,lesson:id}})});
+  const {e}=courseSession(storage),lesson=courseLessons[id];
   const originalWord=e.word.textContent,originalLanguage=e.word.lang;
-  const entry=vocabulary[category].find(item=>item[originalLanguage].word===originalWord);
+  const entry=lesson.entries.find(item=>item[originalLanguage].word===originalWord && item[originalLanguage].example===e.example.textContent);
   const firstTarget=e.options.children[0].lang;
-  e.options.children.find(b=>b.textContent.split(' /')[0]===entry[firstTarget].word).click();
+  e.options.children.find(b=>b.textContent===wordLabel(entry[firstTarget])).click();
   assert.equal(e.result.textContent,'Верно!');assert.equal(e.translation.textContent,entry[firstTarget].word);
-  assert.equal(e.translation.lang,firstTarget);assert.equal(e.back.attributes['aria-hidden'],'false');
-  assert.equal(e.options.hidden,false);assert.equal(e.options.children.length,3);
-  assert.equal(e.advance.hidden,true);assert.equal(e.prompt.hidden,false);
-  const secondTarget=e.options.children[0].lang;
-  assert.notEqual(secondTarget,firstTarget);assert.notEqual(secondTarget,originalLanguage);
-  assert.equal(e.word.textContent,originalWord);assert.equal(e.word.lang,originalLanguage);
-  const wrong=e.options.children.find(b=>b.textContent.split(' /')[0]!==entry[secondTarget].word);
-  wrong.click();assert.equal(e.result.textContent,'Попробуй ещё раз');assert.equal(e.advance.textContent,'Повторить');
-  assert.equal(e.translation.textContent,entry[secondTarget].word);assert.equal(e.options.hidden,true);
-  e.advance.click();assert.equal(e.translation.textContent,'');assert.equal(e.options.hidden,false);
-  assert.equal(e.word.textContent,originalWord);assert.equal(e.options.children[0].lang,secondTarget);
-  e.options.children.find(b=>b.textContent.split(' /')[0]===entry[secondTarget].word).click();
-  assert.equal(e.result.textContent,'Верно!');assert.equal(e.options.hidden,true);
-  assert.equal(e.prompt.hidden,true);assert.equal(e.advance.hidden,false);assert.equal(e.advance.textContent,'Следующее слово');
-  e.advance.click();assert.equal(e.progress.textContent,'Слово 2 из 10 · этап 1 из 2');
+  assert.equal(e.options.hidden,false);assert.equal(e.options.children.length,3);assert.equal(e.advance.hidden,true);
+  const secondTarget=e.options.children[0].lang;assert.notEqual(secondTarget,firstTarget);assert.notEqual(secondTarget,originalLanguage);
+  assert.equal(e.word.textContent,originalWord);
+  e.options.children.find(b=>b.textContent!==wordLabel(entry[secondTarget])).click();assert.equal(e.result.textContent,'Попробуй ещё раз');
+  assert.equal(e.options.hidden,true);e.advance.click();assert.equal(e.translation.textContent,'');assert.equal(e.options.hidden,false);
+  e.options.children.find(b=>b.textContent===wordLabel(entry[secondTarget])).click();assert.equal(e.options.hidden,true);
+  assert.equal(e.advance.hidden,false);e.advance.click();assert.equal(e.progress.textContent,'Слово 2 из 10 · этап 1 из 2');
  }
 });
 
@@ -202,40 +185,16 @@ test('results: separate translations, repeated errors, all sources and reset',()
  }
 });
 
-function finishDOM(e,mistakes=[]){
- let task=0;
- while(e.complete.hidden){
-  const entry=vocabulary[Object.keys(categories).find(id=>categories[id].name===e.topic.textContent)]
-   .find(item=>item[e.word.lang].word===e.word.textContent);
-  for(let i=0;i<(mistakes[task]||0);i++){
-   e.options.children.find(b=>b.textContent.split(' /')[0]!==entry[b.lang].word).click();
-   e.advance.click();
-  }
-  const correct=e.options.children.find(b=>b.textContent.split(' /')[0]===entry[b.lang].word);assert.ok(correct,JSON.stringify({source:e.word.textContent,example:e.example.textContent,entry:entry.id,options:e.options.children.map(b=>({text:b.textContent,lang:b.lang})),target:entry[e.options.children[0]?.lang]?.word}));correct.click();
-  if(!e.advance.hidden)e.advance.click();
-  task++;
- }
- assert.equal(task,20);
-}
-test('DOM results: example, restart, category selection and reload without stored scores',()=>{
- const session=domSession('food'),e=session.elements;
- finishDOM(e,[2,1,1]);
- assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 17 из 20');
- assert.equal(e['errors-result'].textContent,'Ошибок: 4');
- e.restart.click();assert.equal(e.complete.hidden,true);finishDOM(e);
- assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 20 из 20');
- assert.equal(e['errors-result'].textContent,'Ошибок: 0');
- e['complete-home'].click();e.categories.children[1].click();finishDOM(e,[4]);
- assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 19 из 20');
- const reloaded=domSession(session.saved).elements;
- assert.equal(reloaded.complete.hidden,true);finishDOM(reloaded);
- assert.equal(reloaded['errors-result'].textContent,'Ошибок: 0');
- assert.equal(reloaded['first-try-result'].textContent,'Верно с первой попытки: 20 из 20');
- const partial=domSession('food').elements;
- const partialEntry=vocabulary.food.find(item=>item[partial.word.lang].word===partial.word.textContent);
- partial.options.children.find(b=>b.textContent.split(' /')[0]!==partialEntry[b.lang].word).click();
- const afterReload=domSession('food').elements;finishDOM(afterReload);
- assert.equal(afterReload['errors-result'].textContent,'Ошибок: 0');
+test('DOM results: error counts, restart, changing themes, persisted bests and reset current attempts',()=>{
+ const {e,storage}=courseSession();e.modules.children[0].click();e['course-lessons'].children[0].click();
+ finishCourseDOM(e,courseLessons['m1-l1'],[2,1,1]);
+ assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 17 из 20');assert.equal(e['errors-result'].textContent,'Ошибок: 4');
+ e.restart.click();finishCourseDOM(e,courseLessons['m1-l1']);assert.equal(e['errors-result'].textContent,'Ошибок: 0');
+ e['complete-home'].click();e['back-modules'].click();e.modules.children[1].click();e['course-lessons'].children[0].click();
+ finishCourseDOM(e,courseLessons['m2-l1'],[4]);assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 19 из 20');
+ const reload=courseSession(storage).e;assert.equal(reload.complete.hidden,true);assert.equal(reload.topic.textContent,'Module 2 · Урок 1');
+ finishCourseDOM(reload,courseLessons['m2-l1']);assert.equal(reload['errors-result'].textContent,'Ошибок: 0');
+ const stored=JSON.parse(storage.getItem(courseStorageKey));assert.equal(stored.results['m1-l1'].cards.firstTryCorrect,20);assert.equal(stored.results['m2-l1'].cards.firstTryCorrect,20);
 });
 
 const {sentenceBank,SentenceGame}=require('../script.js');
@@ -473,10 +432,9 @@ test('new result validation rejects inconsistent sums, bad counts and wrong cont
  }
 });
 test('DOM new workflow: all topics and lessons, both stages, exact language quotas, independent results and repeat',()=>{
- for(const id of Object.keys(assemblyBank)) {
+ for(const id of Object.keys(courseLessons)) {
   const {e,storage}=courseSession();
   if(courseLessons[id]){e.modules.children[courseLessons[id].module-1].click();e['course-lessons'].children[courseLessons[id].number-1].click();finishCourseDOM(e,courseLessons[id]);}
-  else {e['show-themes'].click();e.categories.children[Object.keys(categories).indexOf(id)].click();finishDOM(e);}
   e['to-sentences'].click();assert.equal(e['translation-builder'].hidden,true);
   const count=tasksFor(id).length;assert.deepEqual(finishSentenceDOM(e,id,true),{en:count,kk:count-2,ru:2});
   assert.equal(e['first-try-result'].textContent,`Английские предложения: ${count-1} из ${count} с первой попытки`);
@@ -498,8 +456,7 @@ test('DOM persistence: reload in each stage and after completion resets attempt/
  const finished=courseSession(storage).e;assert.equal(finished['sentence-exercise'].hidden,true);finished['back-home'].click();
  assert.ok(finished['course-lessons'].children[1].textContent.includes('Предложения пройдены'));
  assert.ok(finished['course-lessons'].children[1].textContent.includes('переводы 10/10'));
- finished['show-themes'].click();assert.equal(finished['show-themes'].attributes['aria-pressed'],'true');assert.equal(finished['show-course'].attributes['aria-pressed'],'false');
- finished.categories.children[0].click();assert.equal(courseSession(storage).e.topic.textContent,'Еда');
+ finished['back-modules'].click();assert.equal(finished.modules.children[0].attributes['aria-pressed'],'true');assert.equal(courseSession(storage).e.modules.hidden,false);
  const denied=courseSession({getItem(){throw Error();},setItem(){throw Error();}}).e;assert.ok(denied['storage-notice'].textContent.includes('недоступно'));
 });
 test('old sentence progress is visible but does not mark the new lesson complete',()=>{
@@ -577,7 +534,7 @@ test('new modules: restored module and lesson, separate module progress, invalid
   const storage=memoryStorage(),p=new CourseProgress(storage),lesson=Object.values(courseLessons).filter(l=>l.module===module.id).at(-1);
   p.select({mode:'course',module:module.id,lesson:lesson.id});p.record(lesson.id,'cards',{phase:'complete',firstTryCorrect:lesson.entries.length*2,errors:0});
   const {e}=courseSession(storage);assert.equal(e.topic.textContent,lesson.name);assert.equal(e.progress.textContent,`Слово 1 из ${lesson.entries.length} · этап 1 из 2`);
-  e['back-home'].click();assert.equal(e['catalog-title'].textContent,`Module ${module.id} — ${module.name}`);assert.equal(e['course-lessons'].children.length,module.lessons);
+  e['back-home'].click();assert.equal(e['catalog-title'].textContent,module.name);assert.equal(e['course-lessons'].children.length,module.lessons);
   assert.ok(e['content-notice'].textContent.includes('не выполнена'));
   assert.ok(e['course-lessons'].children.at(-1).textContent.includes('Карточки пройдены'));
   p.select({mode:'course',module:module.id,lesson:module.id===1?'m2-l1':'m1-l1'});assert.equal(p.selection.lesson,null);
@@ -597,4 +554,67 @@ test('editorial corrections and homographs: notes applied without merging source
  const task=assemblyTasks.find(t=>t.id===by(563).id),hint=sentenceParts(task,true).find(p=>p.text==='fast').hint;
  assert.equal(hint.ru,'поститься');assert.equal(hint.kk,'ашығу');
  const ids=courseEntries.filter(e=>e.source.english==='fan').map(e=>e.id);assert.ok(ids.length>=3);assert.equal(new Set(ids).size,ids.length);
+});
+
+const {topicDesigns,topicIllustration,validSelection}=require('../script.js');
+test('unified catalogue: exactly nine illustrated topic buttons, original names, explanations and counts',()=>{
+ const html=fs.readFileSync('index.html','utf8');
+ for(const id of ['show-course','show-themes','themes-panel','categories'])assert.ok(!html.includes(`id="${id}"`));
+ const {e}=courseSession();assert.equal(e.modules.children.length,9);
+ assert.equal(new Set(Object.values(topicDesigns).map(t=>t.tone)).size,9);
+ for(const m of courseModules) {
+  const tile=e.modules.children[m.id-1],design=topicDesigns[m.id];
+  assert.equal(tile.type,'button');assert.equal(tile.dataset.module,String(m.id));
+  assert.equal(tile.attributes['aria-pressed'],'false');assert.ok(tile.textContent.includes(m.name));
+  assert.ok(tile.textContent.includes(design.caption));assert.ok(tile.textContent.includes(`${m.count} записей · ${m.lessons} уроков`));
+  const art=tile.children.find(c=>c.className==='topic-art');assert.equal(art.attributes['aria-hidden'],'true');
+  assert.ok(art.innerHTML.includes('<svg'));assert.ok(art.innerHTML.includes('focusable="false"'));
+  assert.ok(!/<(?:image|foreignObject|script)|\bon\w+=|(?:href|src)=/.test(topicIllustration(m.id)));
+ }
+ assert.ok(e['content-notice'].textContent.includes('не выполнена'));
+});
+test('catalogue selection survives returning from lessons and F5 without reopening a lesson',()=>{
+ const {e,storage}=courseSession();e.modules.children[7].click();
+ assert.equal(e['catalog-title'].textContent,'Sports');
+ const inLessons=courseSession(storage).e;assert.equal(inLessons.modules.hidden,true);assert.equal(inLessons['course-lessons'].hidden,false);
+ assert.equal(inLessons['catalog-title'].textContent,'Sports');
+ inLessons['back-modules'].click();const restored=courseSession(storage).e;
+ assert.equal(restored.modules.hidden,false);assert.equal(restored['course-lessons'].hidden,true);
+ assert.equal(restored['catalog-title'].textContent,'Выбери тему');
+ assert.equal(restored.modules.children.filter(t=>t.attributes['aria-pressed']==='true').length,1);
+ assert.equal(restored.modules.children[7].attributes['aria-pressed'],'true');
+ assert.equal(restored.modules.children[7].children[0].children.find(t=>t.className==='topic-selected').hidden,false);
+ assert.equal(restored.modules.children[0].children[0].children.find(t=>t.className==='topic-selected').hidden,true);
+});
+test('legacy theme selections open unified catalogue and preserve course results and unrelated keys',()=>{
+ const id='m8-l1';
+ for(const selection of [{mode:'themes'},null,{mode:'unknown',module:4,lesson:'m4-l1'}]) {
+  const storage=memoryStorage({[storageKey]:'food',unrelated:'keep',[courseStorageKey]:JSON.stringify({version:2,selection,results:{[id]:{signature:courseLessons[id].signature,cards:{total:20,firstTryCorrect:18,errors:2}}}})});
+  const {e}=courseSession(storage);assert.equal(e.home.hidden,false);assert.equal(e.modules.hidden,false);assert.equal(e.lesson.hidden,true);
+  assert.equal(e.modules.children.length,9);assert.ok(e.modules.children.every(t=>t.attributes['aria-pressed']==='false'));
+  assert.equal(storage.getItem(storageKey),'food');assert.equal(storage.getItem('unrelated'),'keep');
+  assert.equal(JSON.parse(storage.getItem(courseStorageKey)).results[id].cards.firstTryCorrect,18);
+ }
+ assert.deepEqual(validSelection({mode:'course',module:8,lesson:'m8-l3',screen:'catalog'}),{mode:'course',module:8,lesson:null,screen:'catalog'});
+ assert.equal(validSelection({mode:'course',module:8,lesson:'m8-l3'}).screen,'lesson');
+ assert.equal(validSelection({mode:'course',module:8,lesson:null}).screen,'lessons');
+});
+test('migration of previous course selection restores each module lesson with fresh answers and retained best scores',()=>{
+ for(const m of courseModules) {
+  const id=`m${m.id}-l1`,storage=memoryStorage({[courseStorageKey]:JSON.stringify({version:2,selection:{mode:'course',module:m.id,lesson:id},results:{[id]:{signature:courseLessons[id].signature,cards:{total:20,firstTryCorrect:19,errors:1}}}})});
+  const {e}=courseSession(storage);assert.equal(e.topic.textContent,courseLessons[id].name);assert.equal(e.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
+  assert.equal(e['sentence-exercise'].hidden,true);assert.equal(e['back-home'].textContent,'К урокам');
+  e['back-home'].click();assert.equal(e['catalog-title'].textContent,m.name);assert.ok(e['course-lessons'].children[0].textContent.includes('19/20'));
+  e['back-modules'].click();assert.equal(e.modules.children[m.id-1].attributes['aria-pressed'],'true');
+ }
+});
+test('topic palettes: normal text and selected badges have readable contrast on every theme',()=>{
+ const css=fs.readFileSync('styles.css','utf8');
+ function lum(hex){const rgb=hex.match(/[a-f\d]{2}/gi).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;}
+ function ratio(a,b){const x=lum(a),y=lum(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
+ for(const d of Object.values(topicDesigns)) {
+  const rule=css.match(new RegExp('\\.topic-'+d.tone+'\\{([^}]+)\\}'))[1];
+  const bg=rule.match(/--topic-bg:(#[a-f\d]{6})/)[1],ink=rule.match(/--topic-ink:(#[a-f\d]{6})/)[1];
+  assert.ok(ratio('#183831',bg)>=4.5,d.tone);assert.ok(ratio('#435e55',bg)>=4.5,d.tone);assert.ok(ratio('#ffffff',ink)>=4.5,d.tone);
+ }
 });

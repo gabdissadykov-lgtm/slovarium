@@ -2,22 +2,24 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Изучаем английский, казахский и русский по карточкам: курс по модулям и шесть тематических тренировок.">
+<meta name="description" content="Изучаем английский, казахский и русский по карточкам: девять тем, 829 записей и уроки по трём языкам.">
 <title>Словариум — три языка, один мир</title><link rel="stylesheet" href="styles.css"><script src="script.js" defer></script>
 </head>
 <body>
 <header><span class="brand"><span class="logo" aria-hidden="true">С</span>Словариум</span><span class="header-note">Три языка. Один большой мир.</span></header>
 <main>
 <section id="home" aria-labelledby="home-title">
-<p class="eyebrow">УЧИМСЯ ИГРАЯ</p><h1 id="home-title" tabindex="-1">Новые слова.<br><span>Знакомый мир.</span></h1>
-<p class="intro">Выбери урок или тему и угадывай переводы.<br>Английский, қазақша и русский — вместе!</p>
-<nav class="learning-nav" aria-label="Режим обучения"><button id="show-course" class="secondary">Курс по модулям</button><button id="show-themes" class="secondary">Тренировка по темам</button></nav>
-<div id="course-panel"><h2 id="catalog-title" tabindex="-1">Курс по модулям</h2><p id="storage-notice" class="hint" role="status"></p><p id="content-notice" class="hint"></p><button id="back-modules" class="secondary" hidden>К модулям</button><div id="modules" class="categories"></div><div id="course-lessons" class="categories" hidden></div></div>
-<div id="themes-panel" hidden><h2>Что изучим сегодня?</h2><div id="categories" class="categories" aria-label="Рубрики"></div>
-<p class="hint">В каждой теме — 10 понятий. Для каждого слова найди перевод на два других языка.</p></div>
+<div id="catalog-hero"><p class="eyebrow">ТРИ ЯЗЫКА · ДЕВЯТЬ ТЕМ</p>
+<h1 id="home-title" tabindex="-1">Большой мир.<br><span>Маленькие открытия.</span></h1>
+<p class="intro">От дома до мира фантазий — выбери, что интересно тебе.<br>Английский, қазақша и русский — вместе!</p></div>
+<div id="course-panel"><button id="back-modules" class="secondary" hidden>К темам</button>
+<h2 id="catalog-title" tabindex="-1">Выбери тему</h2><p id="catalog-subtitle" class="muted" hidden></p>
+<p id="storage-notice" class="hint" role="status"></p><p id="content-notice" class="content-notice"></p>
+<div id="modules" class="topics-grid" aria-label="Темы учебника"></div>
+<div id="course-lessons" class="categories" aria-label="Уроки выбранной темы" hidden></div></div>
 </section>
 <section id="lesson" hidden aria-label="Выбранный набор">
-<div class="lesson-top"><button id="back-home" class="secondary">К рубрикам</button><h1 id="topic"></h1></div>
+<div class="lesson-top"><button id="back-home" class="secondary">К урокам</button><h1 id="topic"></h1></div>
 <p id="progress" class="muted"></p><progress id="progress-bar" max="20" value="0" aria-label="Прогресс набора"></progress>
 <div id="exercise">
 <div class="card-scene"><div id="flip-card" class="flip-card">
@@ -39,9 +41,9 @@
 </section>
 <button id="sentence-advance" class="primary" hidden>Повторить</button>
 </div>
-<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">🎉</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="complete-home" class="secondary">К рубрикам</button></div></div>
+<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">🎉</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="complete-home" class="secondary">К урокам</button></div></div>
 </section>
-<footer><span>9 модулей · 829 записей · 3 языка</span><span>Учись в своём ритме ♡</span></footer>
+<footer><span>9 тем · 829 записей · 3 языка</span><span>Учись в своём ритме ♡</span></footer>
 </main>
 <div id="word-tooltip" class="word-tooltip" role="tooltip" lang="ru" hidden></div>
 </body></html>
