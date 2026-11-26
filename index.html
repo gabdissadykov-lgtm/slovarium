@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Изучаем английский, казахский и русский по карточкам: шесть тем и 60 понятий.">
+<meta name="description" content="Изучаем английский, казахский и русский по карточкам: курс по модулям и шесть тематических тренировок.">
 <title>Словариум — три языка, один мир</title><link rel="stylesheet" href="styles.css"><script src="script.js" defer></script>
 </head>
 <body>
@@ -10,9 +10,11 @@
 <main>
 <section id="home" aria-labelledby="home-title">
 <p class="eyebrow">УЧИМСЯ ИГРАЯ</p><h1 id="home-title" tabindex="-1">Новые слова.<br><span>Знакомый мир.</span></h1>
-<p class="intro">Выбери тему и угадывай переводы.<br>Английский, қазақша и русский — вместе!</p>
-<h2>Что изучим сегодня?</h2><div id="categories" class="categories" aria-label="Рубрики"></div>
-<p class="hint">В каждой теме — 10 понятий. Для каждого слова найди перевод на два других языка.</p>
+<p class="intro">Выбери урок или тему и угадывай переводы.<br>Английский, қазақша и русский — вместе!</p>
+<nav class="learning-nav" aria-label="Режим обучения"><button id="show-course" class="secondary">Курс по модулям</button><button id="show-themes" class="secondary">Тренировка по темам</button></nav>
+<div id="course-panel"><h2 id="catalog-title" tabindex="-1">Курс по модулям</h2><p id="storage-notice" class="hint" role="status"></p><p id="content-notice" class="hint"></p><button id="back-modules" class="secondary" hidden>К модулям</button><div id="modules" class="categories"></div><div id="course-lessons" class="categories" hidden></div></div>
+<div id="themes-panel" hidden><h2>Что изучим сегодня?</h2><div id="categories" class="categories" aria-label="Рубрики"></div>
+<p class="hint">В каждой теме — 10 понятий. Для каждого слова найди перевод на два других языка.</p></div>
 </section>
 <section id="lesson" hidden aria-label="Выбранный набор">
 <div class="lesson-top"><button id="back-home" class="secondary">К рубрикам</button><h1 id="topic"></h1></div>
@@ -27,11 +29,19 @@
 </div>
 <div id="sentence-exercise" hidden>
 <article class="card"><p id="sentence-language" class="eyebrow"></p><h2 id="sentence-text" tabindex="-1"></h2><p id="sentence-result" class="result" role="status"></p></article>
-<div id="sentence-options" class="options"></div><button id="sentence-advance" class="primary" hidden>Повторить</button>
-</div>
-<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">🎉</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="complete-home" class="secondary">К рубрикам</button></div></div>
+<div id="sentence-options" class="options"></div>
+<section id="translation-builder" class="translation-builder" hidden aria-labelledby="translation-title">
+<h2 id="translation-title" tabindex="-1"></h2><p class="muted">Нажимай слова по порядку. Нажми выбранное слово, чтобы вернуть его.</p>
+<div id="translation-answer" class="word-tray answer-tray" role="group" aria-label="Собранный перевод"></div>
+<div id="translation-pool" class="word-tray" role="group" aria-label="Слова для перевода"></div>
+<p id="translation-feedback" class="result" role="status"></p><p id="translation-completed" class="example" hidden></p>
+<div class="builder-actions"><button id="translation-clear" class="secondary">Очистить</button><button id="translation-check" class="primary" disabled>Проверить</button></div>
 </section>
-<footer><span>60 понятий · 3 языка</span><span>Учись в своём ритме ♡</span></footer>
+<button id="sentence-advance" class="primary" hidden>Повторить</button>
+</div>
+<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">🎉</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="complete-home" class="secondary">К рубрикам</button></div></div>
+</section>
+<footer><span>9 модулей · 829 записей · 3 языка</span><span>Учись в своём ритме ♡</span></footer>
 </main>
 <div id="word-tooltip" class="word-tooltip" role="tooltip" lang="ru" hidden></div>
 </body></html>

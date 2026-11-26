@@ -211,7 +211,7 @@ function finishDOM(e,mistakes=[]){
    e.options.children.find(b=>b.textContent.split(' /')[0]!==entry[b.lang].word).click();
    e.advance.click();
   }
-  e.options.children.find(b=>b.textContent.split(' /')[0]===entry[b.lang].word).click();
+  const correct=e.options.children.find(b=>b.textContent.split(' /')[0]===entry[b.lang].word);assert.ok(correct,JSON.stringify({source:e.word.textContent,example:e.example.textContent,entry:entry.id,options:e.options.children.map(b=>({text:b.textContent,lang:b.lang})),target:entry[e.options.children[0]?.lang]?.word}));correct.click();
   if(!e.advance.hidden)e.advance.click();
   task++;
  }
@@ -255,125 +255,346 @@ test('sentence access: 15 blocked, 16 and 20 allowed, retries cannot raise thres
   game.start('food');assert.equal(game.unlocked,false);
  }
 });
-test('all sentence topics: same ten concepts, exact language distribution, choices and single gap',()=>{
- for(const [category,tasks] of Object.entries(sentenceBank)){
-  assert.deepEqual(tasks.map(t=>t.id),vocabulary[category].map(e=>e.id));
-  for(let seed=1;seed<=20;seed++){
-   const sg=new SentenceGame(tasks,seeded(seed));
-   assert.deepEqual(sg.deck.reduce((counts,t)=>{counts[t.lang]++;return counts;},{en:0,kk:0,ru:0}),{en:4,kk:4,ru:2});
-   assert.equal(new Set(sg.deck.map(t=>t.id)).size,10);
-  }
-  for(const t of tasks){
-   assert.equal(t.text.split('___').length,2);assert.equal(new Set(t.choices).size,3);
-   assert.equal(t.choices.filter(v=>v===t.answer).length,1);
-   const words=t.text.replace('___',t.answer).split(/\s+/).length;
-   assert.ok(words<=12&&words>=(t.lang==='kk'?5:7),t.text);
-  }
- }
-});
-test('sentence runs and restarts: actual tasks keep 4/4/2 and vary their order in every topic',()=>{
- for(const category of Object.keys(sentenceBank)){
-  const game=new WordGame(seeded(42));game.start(category);finishGame(game);
-  const orders=new Set(), languageOrders=new Set();
-  for(let run=0;run<100;run++){
-   game.startSentences();assert.equal(game.phase,'sentences');
-   const sg=game.sentenceGame, counts={en:0,kk:0,ru:0}, ids=[], langs=[];
-   while(sg.phase!=='complete'){
-    const task=sg.task;counts[task.lang]++;ids.push(task.id);langs.push(task.lang);
-    sg.answer(sg.options.find(value=>value!==task.answer));sg.advance();
-    assert.equal(sg.task,task);
-    sg.answer(task.answer);sg.advance();
-   }
-   assert.equal(ids.length,10);assert.equal(new Set(ids).size,10);
-   assert.deepEqual(counts,{en:4,kk:4,ru:2},`${category}, run ${run}`);
-   orders.add(ids.join(','));languageOrders.add(langs.join(','));
-   game.phase='sentence-complete';
-  }
-  assert.ok(orders.size>1,category);assert.ok(languageOrders.size>1,category);
- }
-});
-test('sentence errors: four in three tasks yields 7/10; no bypass or double answers',()=>{
- const sg=new SentenceGame(sentenceBank.food,seeded(3));
- for(let i=0;i<10;i++){
-  const task=sg.task;
-  sg.advance();assert.equal(sg.phase,'question');sg.answer('missing');assert.equal(sg.phase,'question');
-  for(let n=0;n<([2,1,1][i]||0);n++){
-   sg.answer(sg.options.find(v=>v!==task.answer));assert.equal(sg.phase,'feedback');assert.equal(sg.correct,false);
-   const errors=sg.errors;sg.answer(task.answer);assert.equal(sg.errors,errors);
-   sg.advance();assert.equal(sg.task,task);assert.equal(sg.phase,'question');
-  }
-  sg.answer(task.answer);assert.equal(sg.correct,true);sg.advance();
- }
- assert.equal(sg.phase,'complete');assert.equal(sg.firstTryCorrect,7);assert.equal(sg.errors,4);
-});
-test('DOM sentences: threshold, hidden hints, retry, results, restart and reload',()=>{
- for(const score of [15,16,20]){
-  const session=domSession('food'),e=session.elements;
-  finishDOM(e,Array(20-score).fill(1));
-  assert.equal(e['to-sentences'].hidden,score<16);assert.equal(e['unlock-message'].hidden,score>=16);
-  if(score<16)continue;
-  e['to-sentences'].click();assert.equal(e.exercise.hidden,true);assert.equal(e['sentence-exercise'].hidden,false);
-  const counts={en:0,kk:0,ru:0};
-  for(let i=0;i<10;i++){
-   const text=e['sentence-text'].textContent;
-   const task=sentenceBank.food.find(t=>t.text===text);assert.ok(task);counts[task.lang]++;
-   assert.equal(e['sentence-options'].children.length,3);assert.equal(e['sentence-text'].lang,task.lang);
-   assert.equal(e['sentence-result'].textContent,'');
-   for(let j=0;j<([2,1,1][i]||0);j++){
-    e['sentence-options'].children.find(b=>b.textContent!==task.answer).click();
-    assert.equal(e['sentence-text'].textContent,task.text.replace('___',task.answer));
-    assert.equal(e['sentence-options'].hidden,true);assert.equal(e['sentence-advance'].textContent,'Повторить');
-    e['sentence-advance'].click();assert.equal(e['sentence-text'].textContent,text);
-   }
-   e['sentence-options'].children.find(b=>b.textContent===task.answer).click();
-   assert.equal(e['sentence-result'].textContent,'Верно!');e['sentence-advance'].click();
-  }
-  assert.deepEqual(counts,{en:4,kk:4,ru:2});
-  assert.equal(e['first-try-result'].textContent,'Верно с первой попытки: 7 из 10');
-  assert.equal(e['errors-result'].textContent,'Ошибок: 4');
-  assert.equal(e.restart.textContent,'Повторить предложения');
-  e.restart.click();assert.equal(e['sentence-exercise'].hidden,false);assert.equal(e.complete.hidden,true);
-  const reload=domSession(session.saved).elements;
-  assert.equal(reload['sentence-exercise'].hidden,true);assert.equal(reload.topic.textContent,'Еда');
-  assert.equal(reload.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
-  e['back-home'].click();e.categories.children[0].click();assert.equal(e['sentence-exercise'].hidden,true);
- }
-});
 
 const {sentenceParts}=require('../script.js');
-test('English help: all 24 sentences, punctuation, blank exclusion and completed answer coverage',()=>{
- let count=0;
- for(const tasks of Object.values(sentenceBank)) for(const task of tasks){
-  if(task.lang!=='en') {assert.ok(sentenceParts(task).every(p=>!p.hint));continue;}
-  count++;
-  for(const answered of [false,true]){
-   const parts=sentenceParts(task,answered);
-   assert.equal(parts.map(p=>p.text).join(''),answered?task.text.replace('___',task.answer):task.text);
-   assert.equal(parts.filter(p=>p.hint).length,task.text.match(/[A-Za-z]+/g).length+(answered?1:0));
-   for(const part of parts){
-    if(!part.hint){assert.ok(!/[A-Za-z]/.test(part.text));continue;}
-    const h=part.hint;assert.match(h.word,/^[A-Za-z]+$/);assert.ok(h.ipa&&!h.ipa.includes('undefined'));
-    if(/^(a|an|the)$/i.test(h.word)){assert.ok(h.note);assert.equal(h.kk,undefined);assert.equal(h.ru,undefined);}
-    else {assert.ok(h.kk,part.text);assert.ok(h.ru,part.text);}
-    if(h.phrase) assert.ok(!h.phrase.includes('___'));
-    if(!answered) assert.ok(!new RegExp(`\\b${task.answer}\\b`,'i').test(JSON.stringify(h)),task.text);
+
+const {courseEntries,courseLessons,courseModules,CourseProgress,courseStorageKey,tasksFor}=require('../script.js');
+function memoryStorage(initial={}) {
+ const values=new Map(Object.entries(initial));
+ return {values,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};
+}
+function courseSession(storage=memoryStorage()) {
+ const html=fs.readFileSync('index.html','utf8'),elements={};
+ for(const [,id] of html.matchAll(/id="([^"]+)"/g)) elements[id]=new Element();
+ const window={localStorage:storage,addEventListener(){},clearTimeout(){}};
+ const context={window,document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}};
+ vm.runInNewContext(fs.readFileSync('script.js','utf8'),context);
+ return {e:elements,storage};
+}
+function finishCourseDOM(e,lesson,mistakes=[]) {
+ let step=0;
+ while(e.complete.hidden) {
+  const entry=lesson.entries.find(item=>item[e.word.lang].word===e.word.textContent && item[e.word.lang].example===e.example.textContent);
+  assert.ok(entry);
+  for(let i=0;i<(mistakes[step]||0);i++) {
+   e.options.children.find(b=>b.textContent.split(' /')[0]!==entry[b.lang].word).click();e.advance.click();
+  }
+  const correct=e.options.children.find(b=>b.textContent.split(' /')[0]===entry[b.lang].word);assert.ok(correct,JSON.stringify({source:e.word.textContent,example:e.example.textContent,entry:entry.id,options:e.options.children.map(b=>({text:b.textContent,lang:b.lang})),target:entry[e.options.children[0]?.lang]?.word}));correct.click();
+  if(!e.advance.hidden) e.advance.click();step++;
+ }
+ assert.equal(step,lesson.entries.length*2);
+}
+test('course source coverage, permanent lessons, sections, repeats, edits and metadata',()=>{
+ const pilotEntries=courseEntries.filter(e=>e.moduleId===1),pilotLessons=Object.fromEntries(Object.entries(courseLessons).filter(([,l])=>l.module===1));
+ assert.equal(courseModules.length,9);assert.equal(courseModules.filter(m=>m.ready).length,9);
+ assert.equal(courseModules.reduce((n,m)=>n+m.count,0),829);
+ assert.equal(pilotEntries.length,90);assert.equal(Object.keys(pilotLessons).length,9);
+ assert.equal(new Set(pilotEntries.map(e=>e.id)).size,90);
+ assert.deepEqual(Object.values(pilotLessons).flatMap(l=>l.entries.map(e=>e.id)),pilotEntries.map(e=>e.id));
+ assert.deepEqual(pilotEntries.reduce((c,e)=>{c[e.source.section]=(c[e.source.section]||0)+1;return c;},{}),{'Module 1':22,'1a':21,'1c':16,'1e':11,'1f':12,'1g':8});
+ for(const lesson of Object.values(pilotLessons)) {
+  assert.equal(lesson.entries.length,10);
+  assert.deepEqual(lesson.entries.map(e=>Number(e.source.number)),Array.from({length:10},(_,i)=>(lesson.number-1)*10+i+1));
+ }
+ for(const [word,n] of [['metal',2],['castle',2],['huge',3]]) assert.equal(pilotEntries.filter(e=>e.en.word===word).length,n);
+ assert.equal(pilotEntries.filter(e=>!e.source.ipa).length,2);
+ assert.equal(pilotEntries.filter(e=>e.source.note).length,2);
+ assert.equal(pilotEntries.filter(e=>e.en.word.includes(' ')).length,4);
+ assert.equal(pilotEntries[47].source.ru,'пусто');assert.equal(pilotEntries[47].ru.word,'пустой');
+ assert.equal(pilotEntries[67].source.kk,'мөр');assert.equal(pilotEntries[67].kk.word,'із');
+ for(const e of pilotEntries) {
+  for(const lang of languages) assert.ok(e[lang].word && e[lang].example);
+  assert.ok(e.en.ipa && e.ipaSource && e.source.pos && e.review);
+ }
+});
+test('course invalid storage: JSON, unknown IDs, malformed scores and denied access',()=>{
+ for(const raw of ['bad','null','[]','{"version":9}',JSON.stringify({version:1,selection:{mode:'course',module:9,lesson:'bad'},results:{bad:{}}})]) {
+  const p=new CourseProgress(memoryStorage({[courseStorageKey]:raw}));assert.deepEqual(p.results,{});assert.equal(p.selection.lesson,null);
+ }
+ const denied={getItem(){throw Error('denied');},setItem(){throw Error('denied');}};
+ const p=new CourseProgress(denied);assert.equal(p.saved,false);
+ p.select({mode:'course',module:1,lesson:'m1-l2'});p.record('m1-l2','cards',{phase:'complete',firstTryCorrect:20,errors:0});
+ assert.equal(p.results['m1-l2'].cards.firstTryCorrect,20);
+ const raw={version:1,selection:{mode:'course',module:1,lesson:'__proto__'},results:{'m1-l1':{signature:courseLessons['m1-l1'].signature,cards:{firstTryCorrect:20,errors:-1,total:20}}}};
+ const invalid=new CourseProgress(memoryStorage({[courseStorageKey]:JSON.stringify(raw)}));assert.deepEqual(invalid.results,{});assert.equal(invalid.selection.lesson,null);
+});
+
+const {assemblyTasks,assemblyBank,sentenceWords,wordKey,sentenceSignature}=require('../script.js');
+function selectTranslation(sg,text=sg.translation.text) {
+ sg.clear();
+ for(const word of sentenceWords(text)) {
+  const id=sg.pool.find(id=>wordKey(sg.tiles[id].text)===wordKey(word));assert.notEqual(id,undefined,word);
+  sg.pick(id);
+ }
+}
+function solveSentence(sg) {sg.answer(sg.task.answer);selectTranslation(sg);sg.check();sg.advance();}
+function finishSentenceDOM(e,id,wrong=false) {
+ const tasks=tasksFor(id),counts={en:0,kk:0,ru:0};let first=true;
+ while(e.complete.hidden) {
+  const text=e['sentence-text'].textContent,task=tasks.find(t=>t.text===text && e['sentence-options'].children.some(b=>b.textContent===t.answer));assert.ok(task,text);counts.en++;
+  assert.equal(e['translation-builder'].hidden,true);
+  if(wrong && first) {
+   e['sentence-options'].children.find(b=>b.textContent!==task.answer).click();
+   assert.equal(e['translation-builder'].hidden,true);assert.equal(e['sentence-advance'].textContent,'Повторить');
+   e['sentence-advance'].click();assert.equal(e['sentence-text'].textContent,text);
+  }
+  e['sentence-options'].children.find(b=>b.textContent===task.answer).click();
+  assert.equal(e['sentence-text'].textContent,task.text.replace('___',task.answer));
+  assert.equal(e['sentence-advance'].hidden,true);assert.equal(e['translation-builder'].hidden,false);
+  const lang=e['translation-pool'].lang;counts[lang]++;
+  assert.equal(e['translation-completed'].textContent,'');
+  const pool=e['translation-pool'],answer=e['translation-answer'];
+  pool.children[0].click();assert.equal(answer.children.length,1);
+  answer.children[0].click();assert.equal(answer.children.length,0);
+  const sequence=sentenceWords(task.translations[lang].text);
+  for(const word of sequence) pool.children.find(b=>wordKey(b.textContent)===wordKey(word)).click();
+  assert.equal(e['translation-check'].disabled,false);e['translation-check'].click();
+  assert.equal(e['translation-completed'].textContent,task.translations[lang].text);
+  assert.equal(e['sentence-advance'].hidden,false);e['sentence-advance'].click();first=false;
+ }
+ return counts;
+}
+test('format 2 data: 889 English tasks, equivalent translation bundles, legal variants, unique choices and lesson coverage',()=>{
+ assert.equal(assemblyTasks.length,889);assert.equal(Object.keys(assemblyBank).length,92);
+ for(const [id,tasks] of Object.entries(assemblyBank)) {
+  assert.equal(tasks.length,entriesForTest(id).length);assert.deepEqual(tasks.map(t=>t.id),entriesForTest(id).map(e=>e.id));
+  for(const t of tasks) {
+   assert.equal(t.lang,'en');assert.equal(t.format,2);assert.equal(t.text.split('___').length,2);
+   assert.equal(new Set(t.choices.map(wordKey)).size,3);assert.ok(t.choices.includes(t.answer));
+   const count=sentenceWords(t.text.replace('___',t.answer)).length;assert.ok(count>=7 && count<=12,t.text);
+   for(const lang of ['kk','ru']) {
+    const tr=t.translations[lang],words=sentenceWords(tr.text).map(wordKey).sort();assert.ok(words.length>=3);
+    assert.ok(tr.variants.length);assert.equal(tr.variants[0],tr.text);
+    for(const variant of tr.variants) assert.deepEqual(sentenceWords(variant).map(wordKey).sort(),words,`${id} ${t.id} ${variant}`);
    }
   }
  }
- assert.equal(count,24);
+ function entriesForTest(id){return courseLessons[id]?.entries||vocabulary[id];}
 });
-test('English help: contextual verbs, plurals, articles and idioms have the intended meanings',()=>{
- const hints=(category,index)=>sentenceParts(sentenceBank[category][index],true).filter(p=>p.hint).map(p=>p.hint);
- const drink=hints('food',2);
- assert.equal(drink.find(h=>h.word==='drink').kk,'ішемін');
- assert.equal(drink.find(h=>h.word==='drink').ru,'пью');
- assert.equal(drink.find(h=>h.word==='glasses').ru,'стаканы');
- assert.equal(drink.find(h=>h.word==='day').phrase,'every day');
- assert.equal(hints('travel',3).find(h=>h.word==='books').ru,'бронирует');
- assert.equal(hints('home',1).find(h=>h.word==='window').ru,'окно');
- assert.equal(hints('school',3).find(h=>h.word==='pages').ru,'страницах');
- assert.ok(hints('school',3).find(h=>h.word==='the').note.includes('страницах'));
- assert.equal(hints('school',2).find(h=>h.word==='starts').ru,'начинается');
- assert.equal(hints('school',2).find(h=>h.word==='nine').phrase,'at nine');
- assert.equal(hints('other',1).filter(h=>h.word.toLowerCase()==='the')[1].ipa,'ði');
+test('all 92 trainings: 100 runs each, exact English counts and 8/2 or 7/2 translations',()=>{
+ const orders=new Set(),assignments=new Set();
+ for(const id of Object.keys(assemblyBank)) {
+  const count=tasksFor(id).length;const game=new WordGame(seeded(71));game.start(id);finishGame(game);
+  for(let run=0;run<100;run++) {
+   game.startSentences();const sg=game.sentenceGame,counts={en:0,kk:0,ru:0},seen=new Set();
+   orders.add(sg.deck.map(t=>t.id).join(','));assignments.add(sg.deck.map(t=>t.translationLang).join(','));
+   while(sg.phase!=='complete') {
+    const t=sg.task;assert.equal(t.lang,'en');counts.en++;counts[t.translationLang]++;seen.add(t.id);
+    sg.advance();assert.equal(sg.task,t);assert.equal(sg.phase,'question');
+    sg.answer(sg.options.find(v=>v!==t.answer));sg.advance();assert.equal(sg.task,t);
+    sg.answer(t.answer);assert.equal(sg.phase,'translation');sg.advance();assert.equal(sg.task,t);
+    assert.ok(!sg.translation.variants.some(v=>wordKey(v)===wordKey(sg.pool.map(id=>sg.tiles[id].text).join(' '))),t.id);
+    selectTranslation(sg);sg.check();assert.equal(sg.phase,'translated');sg.advance();
+   }
+   assert.deepEqual(counts,{en:count,kk:count-2,ru:2});assert.equal(seen.size,count);
+   assert.equal(sg.englishFirstTry,0);assert.equal(sg.translationFirstTry,count);assert.equal(sg.errors,count);
+   game.phase='sentence-complete';
+  }
+ }
+ assert.ok(orders.size>1);assert.ok(assignments.size>1);
+});
+test('format 2 errors: independent stages, incomplete checks, unchanged submission, edit/clear and no bypass',()=>{
+ const sg=new SentenceGame(tasksFor('food'),seeded(8));const task=sg.task;
+ sg.answer('missing');assert.equal(sg.phase,'question');sg.advance();assert.equal(sg.phase,'question');
+ sg.answer(sg.options.find(v=>v!==task.answer));assert.equal(sg.errors,1);
+ sg.answer(task.answer);assert.equal(sg.phase,'feedback');sg.advance();sg.answer(task.answer);
+ assert.equal(sg.englishFirstTry,0);assert.equal(sg.phase,'translation');
+ sg.check();assert.equal(sg.errors,1);sg.pick(sg.pool[0]);sg.check();assert.equal(sg.errors,1);sg.clear();
+ const bad=[...sg.pool];bad.forEach(id=>sg.pick(id));assert.ok(sg.canCheck);sg.check();assert.equal(sg.errors,2);
+ assert.equal(sg.phase,'translation');assert.equal(sg.message,'Попробуй ещё раз');
+ sg.check();sg.check();assert.equal(sg.errors,2);assert.equal(sg.canCheck,false);
+ const last=sg.selected.at(-1);sg.remove(last);sg.pick(last);sg.check();assert.equal(sg.errors,2);
+ let secondWrong=null;
+ const base=sg.tiles.map(t=>t.id);
+ for(let i=0;i<base.length && !secondWrong;i++)for(let j=i+1;j<base.length && !secondWrong;j++) {
+  const candidate=[...base];[candidate[i],candidate[j]]=[candidate[j],candidate[i]];
+  const key=wordKey(candidate.map(id=>sg.tiles[id].text).join(' '));
+  if(key!==sg.lastChecked && !sg.translation.variants.some(v=>wordKey(v)===key))secondWrong=candidate;
+ }
+ assert.ok(secondWrong);sg.clear();secondWrong.forEach(id=>sg.pick(id));sg.check();assert.equal(sg.errors,3);
+ selectTranslation(sg);sg.check();assert.equal(sg.phase,'translated');assert.equal(sg.translationFirstTry,0);
+ sg.pick(0);sg.clear();sg.check();assert.equal(sg.errors,3);assert.equal(sg.phase,'translated');
+ sg.advance();const next=sg.task;assert.notEqual(next.id,task.id);assert.equal(sg.taskErrors,0);
+ solveSentence(sg);assert.equal(sg.englishFirstTry,1);assert.equal(sg.translationFirstTry,1);
+ while(sg.phase!=='complete')solveSentence(sg);
+ assert.equal(sg.firstTryCorrect,18);assert.equal(sg.englishFirstTry,9);assert.equal(sg.translationFirstTry,9);assert.equal(sg.errors,3);
+});
+test('translation: repeated tokens remain independent; case/punctuation and alternate natural orders accepted',()=>{
+ const task={...tasksFor('food')[0],translations:{kk:{text:'Мен де, сен де кел.',variants:['Мен де, сен де кел.','Сен де, мен де кел.']},ru:{text:'И ты, и я идём.',variants:['И ты, и я идём.']}}};
+ for(const lang of ['kk','ru']) {
+  const sg=new SentenceGame([task],seeded(2));sg.deck[0].translationLang=lang;sg.answer(task.answer);
+  const initial=sg.tiles.length;const duplicate=sg.tiles.filter(t=>wordKey(t.text)===(lang==='kk'?'де':'и'));assert.equal(duplicate.length,2);
+  sg.pick(duplicate[0].id);sg.pick(duplicate[0].id);assert.equal(sg.selected.length,1);
+  sg.pick(duplicate[1].id);assert.equal(sg.selected.length,2);sg.remove(duplicate[0].id);assert.equal(sg.selected.length,1);
+  assert.equal(sg.pool.length+sg.selected.length,initial);sg.clear();assert.equal(sg.pool.length,initial);
+  selectTranslation(sg,sg.translation.variants.at(-1).toUpperCase().replace(/[.,]/g,''));sg.check();
+  assert.equal(sg.phase,'translated');assert.equal(sg.translationFirstTry,1);
+ }
+});
+test('new help: every token of all 889 full and blank English tasks, compounds, articles and no premature answer',()=>{
+ let count=0;
+ for(const task of assemblyTasks) for(const answered of [false,true]) {
+  const parts=sentenceParts(task,answered);count++;
+  assert.equal(parts.map(p=>p.text).join(''),answered?task.text.replace('___',task.answer):task.text);
+  for(const p of parts) {
+   if(!/^[A-Za-z]/.test(p.text)) {assert.ok(!p.hint);continue;}
+   const h=p.hint;assert.ok(h?.ipa,`${task.id}: ${p.text}`);
+   if(/^(a|an|the)$/i.test(p.text))assert.ok(h.note);else assert.ok(h.kk && h.ru,`${task.id}: ${p.text}`);
+   if(!answered)assert.ok(!new RegExp('\\b'+task.answer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i').test(JSON.stringify(h)),`${task.id}: ${JSON.stringify(h)}`);
+  }
+ }
+ assert.equal(count,1778);
+ const h=sentenceParts(tasksFor('food')[2],true).find(p=>p.text==='glasses').hint;assert.equal(h.ru,'стаканы');
+ const compound=tasksFor('m1-l1')[3];assert.ok(sentenceParts(compound,true).some(p=>p.hint?.phrase==='bedside cabinet'));
+ assert.ok(sentenceParts(compound,false).every(p=>!p.hint?.phrase?.includes('bedside cabinet')));
+});
+test('course results: migration keeps old cards and sentence results separate; new scores use 20 stages and split counts',()=>{
+ const id='m1-l2',signature=courseLessons[id].signature;
+ const old={version:1,selection:{mode:'course',module:1,lesson:id},results:{[id]:{signature,cards:{firstTryCorrect:18,errors:3,total:20},sentences:{firstTryCorrect:8,errors:2,total:10}}}};
+ const storage=memoryStorage({[courseStorageKey]:JSON.stringify(old),unrelated:'keep'}),p=new CourseProgress(storage);
+ assert.equal(p.selection.lesson,id);assert.equal(p.results[id].sentences,null);assert.equal(p.results[id].cards.firstTryCorrect,18);
+ assert.equal(p.results[id].legacySentences.firstTryCorrect,8);assert.equal(p.data().version,2);
+ const complete=(englishFirstTry,translationFirstTry,errors,phase='complete')=>({phase,englishFirstTry,translationFirstTry,firstTryCorrect:englishFirstTry+translationFirstTry,errors});
+ p.record(id,'sentences',complete(9,9,3));p.record(id,'sentences',complete(10,8,2)); // Tie: fewer errors wins as a whole pair.
+ p.record(id,'sentences',complete(8,9,3));p.record(id,'sentences',complete(10,10,0,'translation'));
+ p.record(id,'cards',{phase:'complete',firstTryCorrect:17,errors:3});
+ const loaded=new CourseProgress(storage),score=loaded.results[id].sentences;
+ assert.equal(score.firstTryCorrect,18);assert.equal(score.total,20);assert.equal(score.englishFirstTry,10);assert.equal(score.translationFirstTry,8);assert.equal(score.errors,2);
+ assert.equal(loaded.results[id].legacySentences.firstTryCorrect,8);assert.equal(loaded.results[id].cards.firstTryCorrect,18);
+ assert.equal(loaded.results['m1-l1'],undefined);assert.equal(storage.getItem('unrelated'),'keep');
+ const raw=JSON.parse(storage.getItem(courseStorageKey));raw.results[id].sentences.signature='changed';storage.setItem(courseStorageKey,JSON.stringify(raw));
+ const invalid=new CourseProgress(storage);assert.equal(invalid.results[id].sentences,null);assert.ok(invalid.results[id].cards);assert.ok(invalid.results[id].legacySentences);
+});
+test('new result validation rejects inconsistent sums, bad counts and wrong content without losing cards',()=>{
+ const id='m1-l1',signature=sentenceSignature(courseLessons[id]);
+ for(const patch of [{englishFirstTry:11},{translationFirstTry:-1},{firstTryCorrect:19},{signature:'other'},{errors:-1},{format:1}]) {
+  const storage=memoryStorage({[courseStorageKey]:JSON.stringify({version:2,results:{[id]:{signature:courseLessons[id].signature,cards:{firstTryCorrect:20,errors:0,total:20},sentences:{format:2,signature,firstTryCorrect:20,total:20,englishFirstTry:10,translationFirstTry:10,errors:0,...patch}}}})});
+  const p=new CourseProgress(storage);assert.equal(p.results[id].sentences,null);assert.equal(p.results[id].cards.firstTryCorrect,20);
+ }
+});
+test('DOM new workflow: all topics and lessons, both stages, exact language quotas, independent results and repeat',()=>{
+ for(const id of Object.keys(assemblyBank)) {
+  const {e,storage}=courseSession();
+  if(courseLessons[id]){e.modules.children[courseLessons[id].module-1].click();e['course-lessons'].children[courseLessons[id].number-1].click();finishCourseDOM(e,courseLessons[id]);}
+  else {e['show-themes'].click();e.categories.children[Object.keys(categories).indexOf(id)].click();finishDOM(e);}
+  e['to-sentences'].click();assert.equal(e['translation-builder'].hidden,true);
+  const count=tasksFor(id).length;assert.deepEqual(finishSentenceDOM(e,id,true),{en:count,kk:count-2,ru:2});
+  assert.equal(e['first-try-result'].textContent,`Английские предложения: ${count-1} из ${count} с первой попытки`);
+  assert.equal(e['translation-first-try-result'].textContent,`Переводы: ${count} из ${count} с первой попытки`);
+  assert.equal(e['errors-result'].textContent,'Ошибок: 1');
+  if(courseLessons[id])assert.equal(JSON.parse(storage.getItem(courseStorageKey)).results[id].sentences.firstTryCorrect,count*2-1);
+  e.restart.click();assert.equal(e['translation-builder'].hidden,true);assert.equal(e['sentence-exercise'].hidden,false);
+  assert.deepEqual(finishSentenceDOM(e,id),{en:count,kk:count-2,ru:2});assert.equal(e['errors-result'].textContent,'Ошибок: 0');
+ }
+});
+test('DOM persistence: reload in each stage and after completion resets attempt/access, retains bests and selected mode',()=>{
+ const {e,storage}=courseSession(),id='m1-l2';e.modules.children[0].click();e['course-lessons'].children[1].click();finishCourseDOM(e,courseLessons[id]);e['to-sentences'].click();
+ const duringEnglish=courseSession(storage).e;assert.equal(duringEnglish['sentence-exercise'].hidden,true);assert.equal(duringEnglish.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
+ const task=tasksFor(id).find(t=>t.text===e['sentence-text'].textContent);e['sentence-options'].children.find(b=>b.textContent===task.answer).click();e['translation-pool'].children[0].click();
+ const partial=courseSession(storage).e;assert.equal(partial.topic.textContent,'Module 1 · Урок 2');assert.equal(partial['translation-builder'].hidden,true);assert.equal(partial['sentence-exercise'].hidden,true);assert.equal(partial.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
+ assert.equal(JSON.parse(storage.getItem(courseStorageKey)).results[id].sentences,null);
+ // A fresh run can complete, store both scores, and reload without retaining access.
+ finishCourseDOM(partial,courseLessons[id]);partial['to-sentences'].click();finishSentenceDOM(partial,id);
+ const finished=courseSession(storage).e;assert.equal(finished['sentence-exercise'].hidden,true);finished['back-home'].click();
+ assert.ok(finished['course-lessons'].children[1].textContent.includes('Предложения пройдены'));
+ assert.ok(finished['course-lessons'].children[1].textContent.includes('переводы 10/10'));
+ finished['show-themes'].click();assert.equal(finished['show-themes'].attributes['aria-pressed'],'true');assert.equal(finished['show-course'].attributes['aria-pressed'],'false');
+ finished.categories.children[0].click();assert.equal(courseSession(storage).e.topic.textContent,'Еда');
+ const denied=courseSession({getItem(){throw Error();},setItem(){throw Error();}}).e;assert.ok(denied['storage-notice'].textContent.includes('недоступно'));
+});
+test('old sentence progress is visible but does not mark the new lesson complete',()=>{
+ const id='m1-l1',storage=memoryStorage({[courseStorageKey]:JSON.stringify({version:1,selection:{mode:'course',module:1,lesson:null},results:{[id]:{signature:courseLessons[id].signature,cards:{total:20,firstTryCorrect:20,errors:0},sentences:{total:10,firstTryCorrect:10,errors:0}}}})});
+ const {e}=courseSession(storage),text=e['course-lessons'].children[0].textContent;
+ assert.ok(text.includes('Карточки пройдены'));assert.ok(text.includes('Прежние предложения: 10/10'));
+ assert.ok(!text.includes('Предложения пройдены'));assert.ok(e.modules.children[0].textContent.includes('Пройдено 0 из 9'));
+});
+test('future 9-record engine retains threshold and uses exactly 9 English, 7 Kazakh and 2 Russian translations',()=>{
+ const lesson=courseLessons['m1-l1'],original=lesson.entries;
+ try {
+  lesson.entries=original.slice(0,9);
+  for(const score of [14,15]) {
+   const game=new WordGame(seeded(42));game.start(lesson.id);finishGame(game,18-score);assert.equal(game.unlocked,score>=15);
+   if(game.unlocked)for(let i=0;i<20;i++) {
+    game.startSentences();const sg=game.sentenceGame,counts={en:0,kk:0,ru:0};
+    while(sg.phase!=='complete'){counts.en++;counts[sg.task.translationLang]++;solveSentence(sg);}
+    assert.deepEqual(counts,{en:9,kk:7,ru:2});assert.equal(sg.firstTryCorrect,18);game.phase='sentence-complete';
+   }
+  }
+ }finally{lesson.entries=original;}
+ assert.equal(courseModules.filter(m=>m.ready).length,9);
+});
+
+test('full course: independently extracted 829 source rows unchanged; all 86 stable lessons and original sections retained',()=>{
+ const crypto=require('node:crypto');
+ assert.equal(courseEntries.length,829);assert.equal(Object.keys(courseLessons).length,86);
+ assert.equal(crypto.createHash('sha256').update(JSON.stringify(courseEntries.map(e=>e.source))).digest('hex'),'5d9a710616e9c1dcfba256a1113e6eaa60a47e6a2994f918c1dbc011d418ef32');
+ assert.deepEqual(courseModules.map(m=>m.count),[90,97,95,107,98,102,99,83,58]);
+ const counts={9:0,10:0};for(const lesson of Object.values(courseLessons))counts[lesson.entries.length]++;
+ assert.deepEqual(counts,{9:31,10:55});
+ assert.equal(new Set(courseEntries.map(e=>e.id)).size,829);
+ assert.deepEqual(Object.values(courseLessons).flatMap(l=>l.entries.map(e=>e.id)),courseEntries.map(e=>e.id));
+ for(const module of courseModules) {
+  const lessons=Object.values(courseLessons).filter(l=>l.module===module.id),entries=courseEntries.filter(e=>e.moduleId===module.id);
+  assert.equal(lessons.length,module.lessons);assert.equal(entries.length,module.count);assert.equal(module.ready,true);
+  assert.deepEqual(lessons.flatMap(l=>l.entries.map(e=>e.source.number)),entries.map(e=>e.source.number));
+  for(const lesson of lessons)assert.deepEqual(lesson.sections,[...new Set(lesson.entries.map(e=>e.source.section))]);
+ }
+ assert.equal(courseEntries.filter(e=>e.source.note).length,113);assert.equal(courseEntries.filter(e=>!e.source.ipa).length,67);
+ assert.equal(new Set(courseEntries.map(e=>e.source.english.trim().toLowerCase())).size,706);
+ for(const e of courseEntries)assert.ok(e.prepared && e.en.ipa && e.review && e.ipaSource);
+ const supplemented=courseEntries.filter(e=>!e.source.ipa && e.moduleId!==1);
+ assert.equal(supplemented.length,65);assert.ok(supplemented.every(e=>e.ipaSource.includes('Редакторская')));
+ assert.deepEqual(require('../script.js').courseContentIssues,[]);
+});
+test('all modules: card distractors stay in module, three distinct choices, both translations and no repeated source IDs',()=>{
+ const directions=new Set();
+ for(const lesson of Object.values(courseLessons))for(let run=0;run<5;run++) {
+  const game=new WordGame(seeded(31+run));game.start(lesson.id);const ids=new Set();
+  while(game.phase!=='complete') {
+   if(game.stage===0){assert.ok(!ids.has(game.entry.id));ids.add(game.entry.id);}
+   assert.equal(game.options.length,3);assert.equal(new Set(game.options.map(e=>e[game.target].word.toLowerCase())).size,3);
+   assert.ok(game.options.every(e=>e.moduleId===lesson.module));directions.add(game.source+'-'+game.target);
+   game.answer(game.entry.id);if(game.phase==='feedback')game.advance();
+  }
+  assert.equal(ids.size,lesson.entries.length);assert.equal(game.firstTryCorrect,lesson.entries.length*2);
+ }
+ assert.equal(directions.size,6);
+});
+test('all 31 actual nine-record lessons: 18 translations, 14 fails and 15 unlocks, full 9 English plus 7/2',()=>{
+ const lessons=Object.values(courseLessons).filter(l=>l.entries.length===9);assert.equal(lessons.length,31);
+ for(const lesson of lessons)for(const score of [14,15]) {
+  const game=new WordGame(seeded(49));game.start(lesson.id);finishGame(game,18-score);
+  assert.equal(game.firstTryCorrect,score);assert.equal(game.unlocked,score===15);
+  if(score===15)for(let run=0;run<3;run++) {
+   game.startSentences();const sg=game.sentenceGame,counts={en:0,kk:0,ru:0};
+   while(sg.phase!=='complete'){counts.en++;counts[sg.task.translationLang]++;solveSentence(sg);}
+   assert.deepEqual(counts,{en:9,kk:7,ru:2});assert.equal(sg.firstTryCorrect,18);game.phase='sentence-complete';
+  }
+ }
+});
+test('new modules: restored module and lesson, separate module progress, invalid cross-module selections rejected',()=>{
+ for(const module of courseModules) {
+  const storage=memoryStorage(),p=new CourseProgress(storage),lesson=Object.values(courseLessons).filter(l=>l.module===module.id).at(-1);
+  p.select({mode:'course',module:module.id,lesson:lesson.id});p.record(lesson.id,'cards',{phase:'complete',firstTryCorrect:lesson.entries.length*2,errors:0});
+  const {e}=courseSession(storage);assert.equal(e.topic.textContent,lesson.name);assert.equal(e.progress.textContent,`Слово 1 из ${lesson.entries.length} · этап 1 из 2`);
+  e['back-home'].click();assert.equal(e['catalog-title'].textContent,`Module ${module.id} — ${module.name}`);assert.equal(e['course-lessons'].children.length,module.lessons);
+  assert.ok(e['content-notice'].textContent.includes('не выполнена'));
+  assert.ok(e['course-lessons'].children.at(-1).textContent.includes('Карточки пройдены'));
+  p.select({mode:'course',module:module.id,lesson:module.id===1?'m2-l1':'m1-l1'});assert.equal(p.selection.lesson,null);
+ }
+ const storage=memoryStorage(),p=new CourseProgress(storage);
+ p.record('m9-l1','cards',{phase:'complete',firstTryCorrect:20,errors:0});
+ p.record('m9-l1','sentences',{phase:'complete',firstTryCorrect:20,englishFirstTry:10,translationFirstTry:10,errors:0});
+ const {e}=courseSession(storage);assert.ok(e.modules.children[8].textContent.includes('Пройдено 1 из 6'));
+ assert.ok(e.modules.children[0].textContent.includes('Пройдено 0 из 9'));
+});
+test('editorial corrections and homographs: notes applied without merging source senses or revealing blanks',()=>{
+ const by=n=>courseEntries.find(e=>Number(e.source.number)===n);
+ for(const [n,lang,expected] of [[127,'ru','светлый'],[207,'kk','үру'],[252,'ru','говорить правду'],[321,'ru','испытатель водных горок'],[568,'kk','жартас'],[784,'ru','плавучий рынок'],[822,'kk','жауу']])assert.equal(by(n)[lang].word,expected);
+ assert.equal(by(270).source.english,'no one more');assert.equal(by(270).en.word,'no more than one');
+ assert.equal(by(723).source.english,'keep your eye');assert.equal(by(723).en.word,'keep your eye on');
+ assert.notEqual(by(127).ru.word,by(217).ru.word);assert.notEqual(by(563).ru.word,by(753).ru.word);
+ const task=assemblyTasks.find(t=>t.id===by(563).id),hint=sentenceParts(task,true).find(p=>p.text==='fast').hint;
+ assert.equal(hint.ru,'поститься');assert.equal(hint.kk,'ашығу');
+ const ids=courseEntries.filter(e=>e.source.english==='fan').map(e=>e.id);assert.ok(ids.length>=3);assert.equal(new Set(ids).size,ids.length);
 });
