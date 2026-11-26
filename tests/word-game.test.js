@@ -535,7 +535,6 @@ test('new modules: restored module and lesson, separate module progress, invalid
   p.select({mode:'course',module:module.id,lesson:lesson.id});p.record(lesson.id,'cards',{phase:'complete',firstTryCorrect:lesson.entries.length*2,errors:0});
   const {e}=courseSession(storage);assert.equal(e.topic.textContent,lesson.name);assert.equal(e.progress.textContent,`Слово 1 из ${lesson.entries.length} · этап 1 из 2`);
   e['back-home'].click();assert.equal(e['catalog-title'].textContent,module.name);assert.equal(e['course-lessons'].children.length,module.lessons);
-  assert.ok(e['content-notice'].textContent.includes('не выполнена'));
   assert.ok(e['course-lessons'].children.at(-1).textContent.includes('Карточки пройдены'));
   p.select({mode:'course',module:module.id,lesson:module.id===1?'m2-l1':'m1-l1'});assert.equal(p.selection.lesson,null);
  }
@@ -559,19 +558,19 @@ test('editorial corrections and homographs: notes applied without merging source
 const {topicDesigns,topicIllustration,validSelection}=require('../script.js');
 test('unified catalogue: exactly nine illustrated topic buttons, original names, explanations and counts',()=>{
  const html=fs.readFileSync('index.html','utf8');
- for(const id of ['show-course','show-themes','themes-panel','categories'])assert.ok(!html.includes(`id="${id}"`));
+ for(const id of ['show-course','show-themes','themes-panel','categories','content-notice'])assert.ok(!html.includes(`id="${id}"`));
  const {e}=courseSession();assert.equal(e.modules.children.length,9);
  assert.equal(new Set(Object.values(topicDesigns).map(t=>t.tone)).size,9);
  for(const m of courseModules) {
   const tile=e.modules.children[m.id-1],design=topicDesigns[m.id];
   assert.equal(tile.type,'button');assert.equal(tile.dataset.module,String(m.id));
   assert.equal(tile.attributes['aria-pressed'],'false');assert.ok(tile.textContent.includes(m.name));
-  assert.ok(tile.textContent.includes(design.caption));assert.ok(tile.textContent.includes(`${m.count} записей · ${m.lessons} уроков`));
+  assert.ok(tile.textContent.includes(design.caption));assert.equal(tile.children.find(c=>c.className==='topic-caption').lang,'kk');assert.ok(tile.textContent.includes(`${m.count} записей · ${m.lessons} уроков`));
   const art=tile.children.find(c=>c.className==='topic-art');assert.equal(art.attributes['aria-hidden'],'true');
   assert.ok(art.innerHTML.includes('<svg'));assert.ok(art.innerHTML.includes('focusable="false"'));
   assert.ok(!/<(?:image|foreignObject|script)|\bon\w+=|(?:href|src)=/.test(topicIllustration(m.id)));
  }
- assert.ok(e['content-notice'].textContent.includes('не выполнена'));
+ assert.equal(e['content-notice'],undefined);
 });
 test('catalogue selection survives returning from lessons and F5 without reopening a lesson',()=>{
  const {e,storage}=courseSession();e.modules.children[7].click();
