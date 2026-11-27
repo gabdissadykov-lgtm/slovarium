@@ -676,15 +676,15 @@ test('wallet: corrupt data, denied reads/writes and stale tabs never overwrite s
 });
 test('DOM wallet: awards and F5, cancel, confirm, duplicate confirmation and unchanged course results',()=>{
  const {e,storage}=courseSession();e.modules.children[0].click();e['course-lessons'].children[0].click();
- finishCourseDOM(e,courseLessons['m1-l1']);assert.equal(e['wallet-balance'].textContent,'Баланс: 100 СЛОВАРИ');
+ finishCourseDOM(e,courseLessons['m1-l1']);assert.equal(e['wallet-balance'].textContent,'Баланс: 100 $lovari');
  const results=storage.getItem(courseStorageKey);
- e['exchange-toggle'].click();e['exchange-start'].click();e['exchange-cancel'].click();assert.equal(e['wallet-balance'].textContent,'Баланс: 100 СЛОВАРИ');
+ e['exchange-toggle'].click();e['exchange-start'].click();e['exchange-cancel'].click();assert.equal(e['wallet-balance'].textContent,'Баланс: 100 $lovari');
  e['exchange-start'].click();e['exchange-confirm'].click();e['exchange-confirm'].click();
- assert.equal(e['wallet-balance'].textContent,'Баланс: 0 СЛОВАРИ');assert.equal(e['exchange-history'].children.length,1);
+ assert.equal(e['wallet-balance'].textContent,'Баланс: 0 $lovari');assert.equal(e['exchange-history'].children.length,1);
  assert.equal(e['wallet-words'].textContent,'Выучено слов: 10');assert.equal(storage.getItem(courseStorageKey),results);
- const restored=courseSession(storage).e;assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 СЛОВАРИ');
- assert.equal(restored['wallet-earned'].textContent,'Всего заработано: 100 СЛОВАРИ');assert.equal(restored['exchange-history'].children.length,1);
- finishCourseDOM(restored,courseLessons['m1-l1']);assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 СЛОВАРИ');
+ const restored=courseSession(storage).e;assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 $lovari');
+ assert.equal(restored['wallet-earned'].textContent,'Всего заработано: 100 $lovari');assert.equal(restored['exchange-history'].children.length,1);
+ finishCourseDOM(restored,courseLessons['m1-l1']);assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 $lovari');
  restored['to-sentences'].click();assert.deepEqual(finishSentenceDOM(restored,'m1-l1'),{en:10,kk:8,ru:2});
- assert.equal(restored['wallet-balance'].textContent,'Баланс: 200 СЛОВАРИ');assert.equal(restored['wallet-sentences'].textContent,'Освоено предложений: 10');
+ assert.equal(restored['wallet-balance'].textContent,'Баланс: 200 $lovari');assert.equal(restored['wallet-sentences'].textContent,'Освоено предложений: 10');
 });

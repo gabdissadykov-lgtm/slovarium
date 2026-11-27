@@ -4447,7 +4447,7 @@ class SlovariWallet {
       this.message=kind==='words'?'Отлично! Ты помнишь это слово':'Отлично! Ты помнишь это предложение';return;
     }
     const next={...this.state,[kind]:[...this.state[kind],id]};
-    if(this.commit(next))this.message=kind==='words'?'+10 СЛОВАРИ!':'+20 СЛОВАРИ!';
+    if(this.commit(next))this.message=kind==='words'?'+10 $lovari!':'+20 $lovari!';
   }
   exchange(expectedBalance) {
     if(this.blocked||!this.saved||this.balance<=0||expectedBalance!==this.balance)return false;
@@ -4766,18 +4766,18 @@ function mount() {
   const wallet=new SlovariWallet(storage);
   let pendingExchange=null;
   function renderWallet() {
-    $('wallet-balance').textContent=`Баланс: ${wallet.balance} СЛОВАРИ`;
+    $('wallet-balance').textContent=`Баланс: ${wallet.balance} $lovari`;
     $('wallet-words').textContent=`Выучено слов: ${wallet.state.words.length}`;
     $('wallet-sentences').textContent=`Освоено предложений: ${wallet.state.sentences.length}`;
-    $('wallet-earned').textContent=`Всего заработано: ${wallet.earned} СЛОВАРИ`;
+    $('wallet-earned').textContent=`Всего заработано: ${wallet.earned} $lovari`;
     $('wallet-message').textContent=wallet.message;
     $('wallet-intro').hidden=wallet.raw!==null;
     $('exchange-start').disabled=wallet.blocked||!wallet.saved||wallet.balance===0;
-    $('exchange-start').textContent=`Обменять ${wallet.balance} СЛОВАРИ`;
+    $('exchange-start').textContent=`Обменять ${wallet.balance} $lovari`;
     $('exchange-history').replaceChildren();
     for(const item of [...wallet.state.exchanges].reverse()) {
       const li=document.createElement('li');
-      li.textContent=`${new Date(item.date).toLocaleString('ru-RU')} — ${item.amount} СЛОВАРИ`;
+      li.textContent=`${new Date(item.date).toLocaleString('ru-RU')} — ${item.amount} $lovari`;
       $('exchange-history').append(li);
     }
     $('exchange-empty').hidden=wallet.state.exchanges.length>0;
@@ -4790,8 +4790,8 @@ function mount() {
   $('exchange-start').addEventListener('click',()=>{
     if(wallet.blocked||!wallet.saved||wallet.balance===0)return;
     pendingExchange=wallet.balance;
-    $('exchange-confirm-text').textContent=`Обменять ${pendingExchange} СЛОВАРИ? Баланс станет нулевым. Достижения сохранятся. Деньги передаёт родитель.`;
-    $('exchange-confirm').textContent=`Обменять ${pendingExchange} СЛОВАРИ`;
+    $('exchange-confirm-text').textContent=`Обменять ${pendingExchange} $lovari? Баланс станет нулевым. Достижения сохранятся. Деньги передаёт родитель.`;
+    $('exchange-confirm').textContent=`Обменять ${pendingExchange} $lovari`;
     $('exchange-confirmation').hidden=false;$('exchange-cancel').focus();
   });
   $('exchange-cancel').addEventListener('click',()=>{cancelExchange();$('exchange-start').focus();});
