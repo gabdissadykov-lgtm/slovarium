@@ -4334,7 +4334,7 @@ function validSelection(value) {
   let screen=['catalog','lessons','lesson'].includes(value.screen)?value.screen:lesson?'lesson':module?'lessons':'catalog';
   if(!module) screen='catalog';
   if(screen==='lesson' && !lesson) screen=module?'lessons':'catalog';
-  return {mode:'course',module,lesson:screen==='lesson'?lesson:null,screen};
+  return {mode:'course',module,lesson,screen};
 }
 function validScore(value,total) {
   return value && Number.isInteger(value.firstTryCorrect) && value.firstTryCorrect>=0 && value.firstTryCorrect<=total &&
@@ -4744,18 +4744,71 @@ function createSentenceHelp(doc, view, sentence, tip) {
 
 // Decorative, local artwork. No user-provided strings are inserted into SVG markup.
 const topicDesigns = {
-  1:{caption:'Үйде және сыртта',tone:'mint',art:'<path d="M32 57 80 20l48 37" fill="#f3c66b"/><path d="M43 55v48h74V55L80 28Z" fill="#fff8e7"/><path d="M70 76h22v27H70Z" fill="#7dbb9b"/><rect x="51" y="62" width="13" height="14" rx="3" fill="#9ed6d7"/><rect x="97" y="62" width="13" height="14" rx="3" fill="#9ed6d7"/><path d="M28 103h105M22 102V78m0 11c-14-2-14-15 0-11m0 19c15-1 15-15 0-11" fill="none"/>'},
-  2:{caption:'Тіршілік иелері',tone:'leaf',art:'<path d="M40 82V38m0 20C13 56 16 30 40 45m0 6c27-5 26-28 0-18" fill="#83c995"/><path d="m74 61 2-29 21 17m15 0 19-17 2 30" fill="#e8b77f"/><ellipse cx="103" cy="76" rx="33" ry="29" fill="#f6cf99"/><path d="m88 75 4 2m21 0 4-2m-17 9 4 3 4-3m-4 3v7m-1 0-6 2m7-2 6 2" fill="none"/><path d="M24 101h30" fill="none"/>'},
-  3:{caption:'Құндылықтар',tone:'rose',art:'<circle cx="53" cy="49" r="16" fill="#f2c3a2"/><circle cx="109" cy="49" r="16" fill="#efb295"/><path d="M25 102V91c0-29 56-29 56 0v11" fill="#e89097"/><path d="M81 102V91c0-29 56-29 56 0v11" fill="#e8af65"/><path d="M80 49C56 32 73 15 80 28c9-14 27 4 0 21Z" fill="#d65d77" stroke="#b04763"/>'},
-  4:{caption:'Еңбек әлемі',tone:'sky',art:'<rect x="35" y="21" width="66" height="83" rx="7" fill="#e6f0fc"/><path d="M47 36h9m17 0h9M47 51h9m17 0h9M47 66h9m17 0h9" stroke="#78a6dc" stroke-width="8"/><path d="M61 86h14v18H61Z" fill="#8ba7d5"/><rect x="89" y="75" width="47" height="30" rx="6" fill="#edbd73"/><path d="M103 75v-8h19v8m-33 13h47m-24-4v8" fill="none"/>'},
-  5:{caption:'Шығармашылық',tone:'lilac',art:'<path d="M93 30c-34-18-67 1-67 33 0 32 32 45 51 36 12-6-6-15 4-20 10-5 30 8 37-8 8-19-6-33-25-41Z" fill="#f9ead3"/><circle cx="47" cy="57" r="7" fill="#e98d90" stroke="none"/><circle cx="66" cy="40" r="7" fill="#e4bb5e" stroke="none"/><circle cx="92" cy="47" r="7" fill="#88bda8" stroke="none"/><circle cx="47" cy="80" r="7" fill="#99a9df" stroke="none"/><path d="m95 98 31-64 9 5-31 64Z" fill="#a48ccc"/><path d="m126 34 4-12c8-9 17 2 9 10l-4 7Z" fill="#e6b46b"/>'},
-  6:{caption:'Оқу қызығы',tone:'honey',art:'<path d="M80 39C60 25 39 26 24 31v65c19-6 39-5 56 9 17-14 37-15 56-9V31c-15-5-36-6-56 8Z" fill="#fff9e8"/><path d="M80 39v66M37 45c11-2 20 0 29 5m-29 9c11-2 20 0 29 5m-29 9c11-2 20 0 29 5m28-28c9-5 19-7 29-5m-29 19c9-5 19-7 29-5m-29 19c9-5 19-7 29-5" fill="none" stroke="#b49358"/><path d="m111 17 3-7 3 7 7 3-7 3-3 7-3-7-7-3Z" fill="#efc95c" stroke="none"/>'},
-  7:{caption:'Қиял әлемі',tone:'fantasy',art:'<path d="M35 100V53h24v47m42 0V53h24v47M59 69h42v31H59Z" fill="#b8a6df"/><path d="m29 53 18-26 18 26m30 0 18-26 18 26" fill="#e6b7cd"/><path d="M73 100V84a7 7 0 0 1 14 0v16" fill="#fff3d5"/><path d="M80 69V36m0 0h18l-7 8H80" fill="#edce75"/><path d="m137 25 3-7 3 7 7 3-7 3-3 7-3-7-7-3ZM16 59l3-6 3 6 6 3-6 3-3 6-3-6-6-3Z" fill="#d6b65d" stroke="none"/>'},
-  8:{caption:'Спорт',tone:'peach',art:'<circle cx="64" cy="70" r="35" fill="#eda56d"/><path d="M29 70h70M64 35v70M40 45c24 10 24 40 0 50m48-50C64 55 64 85 88 95" fill="none" stroke="#925d43"/><path d="m110 34 8 28 12-28m-17 0 9 27 13-27" fill="#b2c2df"/><circle cx="122" cy="79" r="18" fill="#f4d17b"/><path d="m122 68 3 7 8 1-6 5 2 8-7-4-7 4 2-8-6-5 8-1Z" fill="#d6a84e" stroke="none"/>'},
-  9:{caption:'Демалыс',tone:'aqua',art:'<circle cx="119" cy="31" r="15" fill="#f4cb68" stroke="none"/><path d="M119 9V4m0 54v-5m22-22h6m-50 0h-6m43-15 5-5m-35 35-5 5" fill="none" stroke="#ddb04f"/><rect x="36" y="45" width="70" height="51" rx="9" fill="#98ceca"/><path d="M57 45V34h28v11M49 45v51m43-51v51m-47 6v5m52-5v5" fill="none"/><path d="M15 109c12-10 23 10 35 0s23 10 35 0 23 10 35 0 23 10 30 0" fill="none" stroke="#79bac9"/>'}
+  1:{caption:'Үйде және сыртта',tone:'mint'},
+  2:{caption:'Тіршілік иелері',tone:'leaf'},
+  3:{caption:'Құндылықтар',tone:'rose'},
+  4:{caption:'Еңбек әлемі',tone:'sky'},
+  5:{caption:'Шығармашылық',tone:'lilac'},
+  6:{caption:'Оқу қызығы',tone:'honey'},
+  7:{caption:'Қиял әлемі',tone:'fantasy'},
+  8:{caption:'Спорт',tone:'peach'},
+  9:{caption:'Демалыс',tone:'aqua'}
 };
 function topicIllustration(id) {
-  return `<svg viewBox="0 0 160 120" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="80" cy="64" r="51" fill="var(--topic-disc)" stroke="none"/>${topicDesigns[id].art}</svg>`;
+  const paths={
+    1:'<path d="m4 11 8-7 8 7M6 10v10h12V10M10 20v-6h4v6"/>',
+    2:'<path d="M8 15c-3 2-2 6 1 5l3-1 3 1c3 1 4-3 1-5l-2-3h-4Z"/><ellipse cx="5" cy="10" rx="2" ry="3"/><ellipse cx="10" cy="6" rx="2" ry="3"/><ellipse cx="16" cy="7" rx="2" ry="3"/><ellipse cx="20" cy="12" rx="2" ry="3"/>',
+    3:'<path d="M7 4h10v16H7ZM4 8h3m10 0h3M10 8h4m-4 4h4m-4 4h4"/>',
+    4:'<rect x="5" y="7" width="14" height="14" rx="1"/><path d="M9 7V3h6v4M9 11h1m4 0h1m-6 4h1m4 0h1m-4 6v-3h2v3"/>',
+    5:'<path d="M12 3a9 9 0 1 0 0 18h2c3 0 3-4 1-5s0-3 3-3c5 0 3-10-6-10Z"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="6" r="1"/><circle cx="17" cy="9" r="1"/><circle cx="6" cy="13" r="1"/>',
+    6:'<path d="M12 6C8 3 4 4 2 5v15c4-2 7-1 10 1 3-2 6-3 10-1V5c-3-1-6-2-10 1Zm0 0v15M5 9l4 1m-4 3 4 1m6-4 4-1m-4 5 4-1"/>',
+    7:'<path d="M4 21V10h4v11m8 0V10h4v11M8 14h8M10 21v-4h4v4M3 10l3-5 3 5m6 0 3-5 3 5M12 14V3l5 2-5 2"/>',
+    8:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M6 5c7 3 7 11 0 14M18 5c-7 3-7 11 0 14"/>',
+    9:'<rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V3h6v4M8 7v13m8-13v13M7 20v2m10-2v2"/>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${paths[id]||paths[6]}</svg>`;
+}
+
+// View navigation never changes the active exercise or writes learning data.
+function initializeInterface() {
+  const $=id=>document.getElementById(id),views=['learning','progress-view','wallet-view','settings-view'];
+  let current='learning',returnView='learning',opener=null,ready=false,topics=()=>{};
+  function open(view,trigger) {
+    if(!views.includes(view)||(!ready&&view!=='settings-view'))return;
+    if(current===view)return;
+    if(view!=='learning' && current==='learning'){returnView=current;opener=trigger||document.activeElement;}
+    if(view==='learning')returnView='learning';
+    if(current==='wallet-view') {
+      $('exchange-panel').hidden=true;$('exchange-confirmation').hidden=true;
+      $('exchange-toggle').setAttribute('aria-expanded','false');
+    }
+    current=view;
+    for(const id of views)$(id).hidden=id!==view;
+    for(const button of document.querySelectorAll('[data-view]')) {
+      if(button.dataset.view===view)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
+    }
+    const heading=view==='learning'?($('home').hidden?$('topic'):$('home-title')):$(view==='progress-view'?'progress-title':view==='wallet-view'?'wallet-view-title':'settings-title');
+    heading.setAttribute('tabindex','-1');heading.focus();
+  }
+  for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>{
+    if(button.dataset.view==='learning'&&!ready)return;
+    open(button.dataset.view,button);
+    if(button.dataset.view==='learning')topics();
+  });
+  for(const button of document.querySelectorAll('[data-return]'))button.addEventListener('click',()=>{const target=opener;open(returnView);if(target&&!target.closest('[hidden]'))target.focus();});
+  const statusSources=['account-status','wallet-message','storage-notice'];
+  function mirrorStatus(){
+    const messages=statusSources.filter(id=>id!=='account-status'||window.SlovariumOnline).map(id=>$(id).textContent.trim()).filter(Boolean);
+    const text=[...new Set(messages)].join(' · ');
+    if($('global-status').textContent!==text)$('global-status').textContent=text;
+  }
+  const observer=new MutationObserver(mirrorStatus);
+  for(const id of statusSources)observer.observe($(id),{childList:true,characterData:true,subtree:true});
+  $('local-settings-note').hidden=Boolean(window.SlovariumOnline);
+  if(window.SlovariumOnline){$('profile-button').textContent='Войти';open('settings-view');}
+  mirrorStatus();
+  return {open,onTopics(fn){topics=fn;},setReady(value=true){ready=value;for(const id of ['nav-learning','nav-progress','header-balance'])$(id).disabled=!value;},
+    profile(name){$('profile-button').textContent=name;$('profile-button').title=name;},mirrorStatus};
 }
 
 function mount(online=null) {
@@ -4764,9 +4817,16 @@ function mount(online=null) {
   const sentenceHelp=createSentenceHelp(document,window,$('sentence-text'),$('word-tooltip'));
   let storage;try {storage=window.localStorage;} catch { /* Access may be blocked. */ }
   const wallet=online?.wallet || new SlovariWallet(storage);
+  const ui=window.SlovariumUI;
+  ui?.setReady();
+  ui?.onTopics(showTopics);
+  ui?.open('learning');
   let pendingExchange=null;
   function renderWallet() {
     $('wallet-balance').textContent=`Баланс: ${wallet.balance} $lovari`;
+    $('balance-short').textContent=`${wallet.balance} $lovari`;
+    $('header-balance').disabled=wallet.blocked;
+    renderProgress();
     $('wallet-words').textContent=`Выучено слов: ${wallet.state.words.length}`;
     $('wallet-sentences').textContent=`Освоено предложений: ${wallet.state.sentences.length}`;
     $('wallet-earned').textContent=`Всего заработано: ${wallet.earned} $lovari`;
@@ -4805,14 +4865,54 @@ function mount(online=null) {
     progress.select({mode:'course',module:selectedModule,lesson:id,screen});render();
   }
   function showLessons() {
-    game.home();screen='lessons';progress.select({mode:'course',module:selectedModule,lesson:null,screen});render();
+    game.home();screen='lessons';progress.select({mode:'course',module:selectedModule,lesson:progress.selection.lesson,screen});render();
   }
   function showTopics() {
-    game.home();screen='catalog';progress.select({mode:'course',module:selectedModule,lesson:null,screen});render();
+    game.home();screen='catalog';progress.select({mode:'course',module:selectedModule,lesson:progress.selection.lesson,screen});render();
     if(selectedModule) $('modules').children[selectedModule-1]?.focus();
   }
+  function renderProgress() {
+    // Can be called by wallet updates only after progress has been constructed.
+    const summary=$('progress-summary');summary.replaceChildren();
+    for(const [value,label] of [[wallet.state.words.length,'Выучено слов'],[wallet.state.sentences.length,'Освоено предложений'],[wallet.earned,'Всего заработано $lovari'],[wallet.balance,'Баланс $lovari']]) {
+      const card=document.createElement('div');card.className='stat-card';
+      const amount=document.createElement('strong');amount.textContent=String(value);
+      const caption=document.createElement('span');caption.textContent=label;card.append(amount,caption);summary.append(card);
+    }
+    const results=$('progress-results');results.replaceChildren();
+    for(const module of courseModules) {
+      const section=document.createElement('section');section.className='progress-module';
+      const title=document.createElement('h2');title.textContent=module.name;title.lang='en';section.append(title);
+      const lessons=Object.values(courseLessons).filter(l=>l.module===module.id),passed=lessons.filter(l=>progress.results[l.id]?.sentences).length;
+      const note=document.createElement('p');note.textContent=`Пройдено ${passed} из ${lessons.length} уроков`;section.append(note);
+      const list=document.createElement('ul');
+      for(const lesson of lessons) {
+        const result=progress.results[lesson.id];if(!result)continue;
+        const row=document.createElement('li');
+        row.textContent=`Урок ${lesson.number} · `+[
+          result.cards?`карточки: ${result.cards.firstTryCorrect}/${result.cards.total}, ошибок ${result.cards.errors}`:null,
+          result.sentences?`предложения: английские ${result.sentences.englishFirstTry}/${lesson.entries.length}, переводы ${result.sentences.translationFirstTry}/${lesson.entries.length}, ошибок ${result.sentences.errors}`:null,
+          result.legacySentences?`прежние предложения: ${result.legacySentences.firstTryCorrect}/${result.legacySentences.total}`:null
+        ].filter(Boolean).join(' · ');list.append(row);
+      }
+      if(list.children.length)section.append(list);
+      else {const empty=document.createElement('p');empty.textContent='Сохранённых результатов пока нет';section.append(empty);}
+      results.append(section);
+    }
+  }
+  $('continue-course').addEventListener('click',()=>{
+    const selection=progress.selection;
+    if(courseLessons[selection.lesson])start(selection.lesson);
+    else if(selection.module){selectedModule=selection.module;showLessons();}
+  });
   function renderCatalog() {
     const inLessons=screen==='lessons',selected=courseModules.find(m=>m.id===selectedModule);
+    const lastLesson=courseLessons[progress.selection.lesson],lastModule=courseModules.find(m=>m.id===progress.selection.module);
+    $('continue-panel').hidden=inLessons||!lastModule;
+    $('continue-title').textContent=lastModule?`${lastModule.name}${lastLesson?` · Урок ${lastLesson.number}`:''}`:'';
+    const saved=lastLesson?progress.results[lastLesson.id]:null;
+    $('continue-note').textContent=lastLesson?`${saved?.sentences?'Предложения пройдены':saved?.cards?'Карточки пройдены':'Слова и предложения'} · Урок начнётся сначала`:'Вернись к выбору урока';
+    $('continue-course').textContent=lastLesson?'Продолжить →':'Открыть тему →';
     $('storage-notice').textContent=progress.saved?'':'Сохранение недоступно. Прогресс останется только до закрытия или обновления страницы.';
     $('modules').hidden=inLessons;$('course-lessons').hidden=!inLessons;$('back-modules').hidden=!inLessons;
     $('catalog-hero').hidden=inLessons;
@@ -4839,7 +4939,8 @@ function mount(online=null) {
       const caption=document.createElement('span');caption.className='topic-caption';caption.lang='kk';caption.textContent=design.caption;
       const note=document.createElement('span');note.className='topic-count';note.textContent=`${item.count} записей · ${item.lessons} уроков`;
       const passed=Object.entries(progress.results).filter(([id,r])=>courseLessons[id]?.module===item.id && r.sentences).length;
-      const done=document.createElement('span');done.className='topic-progress';done.textContent=item.ready?`Пройдено ${passed} из ${item.lessons}`:'Готовится';
+      const done=document.createElement('span');done.className='topic-progress';done.textContent=item.ready?`Пройдено ${passed} из ${item.lessons} уроков`:'Готовится';
+      const bar=document.createElement('progress');bar.max=item.lessons;bar.value=passed;bar.setAttribute('aria-label',`Пройдено уроков: ${passed} из ${item.lessons}`);done.replaceChildren(bar,document.createTextNode(done.textContent));
       tile.append(top,art,title,caption,note,done);
       if(item.ready)tile.addEventListener('click',()=>{selectedModule=item.id;showLessons();});
       $('modules').append(tile);
@@ -4909,12 +5010,14 @@ function mount(online=null) {
     sentenceHelp.close();
     if(game.phase==='complete') progress.record(game.category,'cards',game);
     if(game.phase==='sentence-complete') progress.record(game.category,'sentences',game.sentenceGame);
-    renderCatalog();renderBuilder();
+    renderCatalog();renderBuilder();renderProgress();
     const home=game.phase==='home',sentenceMode=game.phase==='sentences'||game.phase==='sentence-complete';
     const complete=game.phase==='complete'||game.phase==='sentence-complete';
     $('sentence-exercise').hidden=!sentenceMode||complete;
     $('exercise').hidden=home||complete||sentenceMode;
     $('home').hidden=!home;$('lesson').hidden=home;$('exercise').hidden=home||complete||sentenceMode;$('complete').hidden=!complete;
+    $('language-steps').replaceChildren();
+    $('language-steps').hidden=home||complete||sentenceMode;
     if(home) { $(screen==='lessons'?'catalog-title':'home-title').focus();return; }
     const course=courseLessons[game.category],count=game.deck.length;
     $('back-home').textContent='К урокам';$('complete-home').textContent='К урокам';
@@ -4956,6 +5059,12 @@ function mount(online=null) {
       if(awaiting) $('sentence-text').focus();else if(sg.phase==='translation') $('translation-title').focus();else $('sentence-advance').focus();
       return;
     }
+    for(const [index,lang] of game.targets.entries()) {
+      const step=document.createElement('span');step.className='language-step';step.textContent=`${index<game.stage?'✓':index+1} · ${languageNames[lang]}`;
+      if(index===game.stage)step.setAttribute('aria-current','step');
+      if(index<game.stage)step.classList.toggle('done',true);
+      $('language-steps').append(step);
+    }
     const entry=game.entry[game.source],feedback=game.cardFeedback;
     const awaitingAnswer=game.phase==='question';
     $('source-language').textContent=languageNames[game.source];
@@ -4979,7 +5088,7 @@ function mount(online=null) {
     }
     $('advance').hidden=awaitingAnswer;
     $('prompt').hidden=!awaitingAnswer;
-    $('advance').textContent=!game.correct?'Повторить':'Следующее слово';
+    $('advance').textContent=!game.correct?'Повторить':'Следующее слово →';
     if(awaitingAnswer) $('prompt').focus();else $('advance').focus();
   }
   $('back-home').addEventListener('click',showLessons);
@@ -5007,4 +5116,7 @@ function mount(online=null) {
 }
 if(typeof module!=='undefined' && module.exports) module.exports={SlovariWallet,walletStorageKey,topicDesigns,topicIllustration,validSelection,courseContentIssues,validAssemblyScore,sentenceWords,wordKey,sentenceSignature,assemblySentenceParts,assemblyTasks,assemblyBank,courseEntries,courseLessons,courseModules,CourseProgress,courseStorageKey,entriesFor,tasksFor,courseSentenceParts,sentenceParts,createSentenceHelp,legacySentenceBank:sentenceBank,sentenceBank:assemblyBank,SentenceGame,vocabulary,categories,languages,WordGame,shuffle,loadCategory,saveCategory,storageKey};
 if(typeof window!=='undefined')window.SlovariumCore={mount,CourseProgress,SlovariWallet,courseStorageKey,walletStorageKey,courseLessons,courseEntries,assemblyTasks,validScore,validAssemblyScore,sentenceSignature};
-if(typeof document!=='undefined' && !window.SlovariumOnline) mount();
+if(typeof document!=='undefined') {
+  if(document.querySelectorAll) {window.SlovariumUI=initializeInterface();window.SlovariumUI.setReady(false);}
+  if(!window.SlovariumOnline)mount();
+}

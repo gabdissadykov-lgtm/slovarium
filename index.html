@@ -6,8 +6,16 @@
 <title>Словариум — три языка, один мир</title><link rel="stylesheet" href="styles.css"><script src="firebase-config.js" defer></script><script src="cloud-model.js" defer></script><script src="script.js" defer></script><script src="cloud.js" defer></script>
 </head>
 <body>
-<header><span class="brand"><span class="logo" aria-hidden="true">С</span>Словариум</span><span class="header-note">Три языка. Один большой мир.</span></header>
+<header>
+<button class="brand brand-button" data-view="learning" aria-label="Словариум — к обучению"><span class="logo" aria-hidden="true">С</span>Словариум</button>
+<nav aria-label="Основная навигация"><button id="nav-learning" class="nav-button" data-view="learning" aria-current="page">Темы</button><button id="nav-progress" class="nav-button" data-view="progress-view">Мой прогресс</button></nav>
+<div class="header-actions"><button id="header-balance" class="balance-button" data-view="wallet-view" disabled><span aria-hidden="true">◉</span> <span id="balance-short">— $lovari</span></button><button id="profile-button" class="profile-button" data-view="settings-view">Локально</button></div>
+</header>
 <main>
+<div id="global-status" class="global-status" role="status" aria-live="polite"></div>
+<section id="settings-view" class="app-view" hidden aria-labelledby="settings-title">
+<div class="view-heading"><button class="text-button" data-return>← Назад</button><h1 id="settings-title" tabindex="-1">Семья и настройки</h1></div>
+<p id="local-settings-note" class="muted">Локальный режим · данные хранятся в этом браузере.</p>
 <section id="account" class="wallet" aria-labelledby="account-title" hidden>
 <div class="wallet-heading"><h2 id="account-title">Моя семья</h2><button id="account-signout" class="secondary" hidden>Выйти</button></div>
 <p id="account-status" role="status" aria-live="polite">Подключаемся…</p>
@@ -21,6 +29,9 @@
 </div>
 </section>
 <div class="backup-tools"><button id="backup-export" class="secondary" type="button">Сохранить резервную копию</button><p id="backup-status" class="muted" role="status"></p></div>
+</section>
+<section id="wallet-view" class="app-view" hidden aria-labelledby="wallet-view-title">
+<div class="view-heading"><button class="text-button" data-return>← Назад</button><h1 id="wallet-view-title" tabindex="-1">Мои $lovari</h1></div>
 <section class="wallet" aria-labelledby="wallet-title">
 <div class="wallet-heading"><h2 id="wallet-title">Мои $lovari</h2><button id="exchange-toggle" class="secondary" aria-expanded="false" aria-controls="exchange-panel">Обмен</button></div>
 <p id="wallet-balance" class="wallet-balance"></p>
@@ -35,10 +46,17 @@
 <h3>История обменов</h3><p id="exchange-empty" class="muted">Обменов пока нет</p><ul id="exchange-history"></ul>
 </div>
 </section>
+</section>
+<section id="progress-view" class="app-view" hidden aria-labelledby="progress-title">
+<div class="view-heading"><button class="text-button" data-return>← Назад</button><h1 id="progress-title" tabindex="-1">Мой прогресс</h1></div>
+<div id="progress-summary" class="summary-grid"></div><div id="progress-results"></div>
+</section>
+<div id="learning" class="app-view">
 <section id="home" aria-labelledby="home-title">
 <div id="catalog-hero"><p class="eyebrow">ТРИ ЯЗЫКА · ДЕВЯТЬ ТЕМ</p>
-<h1 id="home-title" tabindex="-1">Большой мир.<br><span>Маленькие открытия.</span></h1>
-<p class="intro">От дома до мира фантазий — выбери, что интересно тебе.<br>Английский, қазақша и русский — вместе!</p></div>
+<h1 id="home-title" tabindex="-1">Три языка. Каждый день.</h1>
+<p class="intro">Английский, қазақша и русский — в одном уроке.</p></div>
+<aside id="continue-panel" class="continue-panel" hidden aria-labelledby="continue-title"><div class="continue-icon" aria-hidden="true">↗</div><div class="continue-copy"><p class="eyebrow">ПРОДОЛЖИТЬ ОБУЧЕНИЕ</p><h2 id="continue-title"></h2><p id="continue-note" class="muted"></p></div><button id="continue-course" class="primary">Продолжить →</button></aside>
 <div id="course-panel"><button id="back-modules" class="secondary" hidden>К темам</button>
 <h2 id="catalog-title" tabindex="-1">Выбери тему</h2><p id="catalog-subtitle" class="muted" hidden></p>
 <p id="storage-notice" class="hint" role="status"></p>
@@ -47,7 +65,7 @@
 </section>
 <section id="lesson" hidden aria-label="Выбранный набор">
 <div class="lesson-top"><button id="back-home" class="secondary">К урокам</button><h1 id="topic"></h1></div>
-<p id="progress" class="muted"></p><progress id="progress-bar" max="20" value="0" aria-label="Прогресс набора"></progress>
+<p id="progress" class="muted"></p><progress id="progress-bar" max="20" value="0" aria-label="Прогресс набора"></progress><div id="language-steps" class="language-steps" aria-label="Этапы перевода"></div>
 <div id="exercise">
 <div class="card-scene"><div id="flip-card" class="flip-card">
 <article id="front" class="card face"><p id="source-language" class="eyebrow"></p><h2 id="word"></h2><p id="ipa" class="ipa"></p><p id="example" class="example"></p></article>
@@ -68,9 +86,10 @@
 </section>
 <button id="sentence-advance" class="primary" hidden>Повторить</button>
 </div>
-<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">🎉</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="complete-home" class="secondary">К урокам</button></div></div>
+<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">✓</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="complete-home" class="secondary">К урокам</button></div></div>
 </section>
-<footer><span>9 тем · 829 записей · 3 языка</span><span>Учись в своём ритме ♡</span></footer>
+</div>
+<footer><button class="text-button" data-view="settings-view">Семья и настройки</button><span>9 тем · 829 записей · 3 языка</span></footer>
 </main>
 <div id="word-tooltip" class="word-tooltip" role="tooltip" lang="ru" hidden></div>
 </body></html>

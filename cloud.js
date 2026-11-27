@@ -41,7 +41,7 @@ async function startCloud(){
  let queue=null,queueKey=null,flushing=false,queueDurable=true,historyDates={};
  function withHistory(w){return {...w,exchanges:w.exchanges.map((item,i)=>({...item,date:historyDates[i]||item.date}))};}
  function status(text){$('account-status').textContent=text;}
- function fail(e){status(friendly(e));if(e.code?.includes('permission-denied')&&role==='child'&&active){active.wallet.blocked=true;$('home').hidden=true;$('lesson').hidden=true;document.querySelector('.wallet[aria-labelledby="wallet-title"]').hidden=true;}}
+ function fail(e){status(friendly(e));if(e.code?.includes('permission-denied')&&role==='child'&&active){window.SlovariumUI?.setReady(false);window.SlovariumUI?.open('settings-view');active.wallet.blocked=true;$('home').hidden=true;$('lesson').hidden=true;document.querySelector('.wallet[aria-labelledby="wallet-title"]').hidden=true;}}
  function repaint(){active?.repaint?.();}
  function persistQueue(){try{localStorage.setItem(queueKey,JSON.stringify(queue));queueDurable=true;}catch{queueDurable=false;status('Очередь не сохранена в браузере. Не закрывайте страницу до восстановления связи.');}}
  function queueCount(){return queue?queue.rewards.length+Object.keys(queue.results).length:0;}
@@ -89,8 +89,9 @@ async function startCloud(){
   if(role==='parent')renderChildren();
   if(profileStop)profileStop();if(devicesStop)devicesStop();
   profileStop=F.onSnapshot(childRef(family,id),snap=>{
-   if(!snap.exists()){status('Профиль недоступен. Выйдите и попросите родителя подключить устройство.');return;}
+   if(!snap.exists()){window.SlovariumUI?.setReady(false);window.SlovariumUI?.open('settings-view');status('Профиль недоступен. Выйдите и попросите родителя подключить устройство.');return;}
    const data=snap.data();
+   window.SlovariumUI?.profile(data.name);
    $('account-title').textContent=role==='parent'?'Кабинет родителя':`Привет, ${data.name}!`;
    $('profile-name').textContent=data.name;
    if(!mounted)mountProfile(data);
@@ -218,6 +219,7 @@ async function startCloud(){
    $('account-login').hidden=Boolean(user);$('account-signout').hidden=!user;
    if(!user){status('Выберите способ входа');return;}
    role=user.isAnonymous?'child':'parent';
+   window.SlovariumUI?.profile(role==='parent'?'Родитель':'Подключение');
    if(role==='parent'){
     family=user.uid;$('parent-dashboard').hidden=false;status('Загружаем семью…');
     stops.push(F.onSnapshot(kidsRef(family),snap=>{children=snap.docs.map(d=>({id:d.id,...d.data()}));renderChildren();

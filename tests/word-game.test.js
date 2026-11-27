@@ -594,7 +594,7 @@ test('legacy theme selections open unified catalogue and preserve course results
   assert.equal(storage.getItem(storageKey),'food');assert.equal(storage.getItem('unrelated'),'keep');
   assert.equal(JSON.parse(storage.getItem(courseStorageKey)).results[id].cards.firstTryCorrect,18);
  }
- assert.deepEqual(validSelection({mode:'course',module:8,lesson:'m8-l3',screen:'catalog'}),{mode:'course',module:8,lesson:null,screen:'catalog'});
+ assert.deepEqual(validSelection({mode:'course',module:8,lesson:'m8-l3',screen:'catalog'}),{mode:'course',module:8,lesson:'m8-l3',screen:'catalog'});
  assert.equal(validSelection({mode:'course',module:8,lesson:'m8-l3'}).screen,'lesson');
  assert.equal(validSelection({mode:'course',module:8,lesson:null}).screen,'lessons');
 });
@@ -607,15 +607,19 @@ test('migration of previous course selection restores each module lesson with fr
   e['back-modules'].click();assert.equal(e.modules.children[m.id-1].attributes['aria-pressed'],'true');
  }
 });
-test('topic palettes: normal text and selected badges have readable contrast on every theme',()=>{
+test('interface palette: text, actions and feedback maintain readable contrast',()=>{
  const css=fs.readFileSync('styles.css','utf8');
  function lum(hex){const rgb=hex.match(/[a-f\d]{2}/gi).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;}
  function ratio(a,b){const x=lum(a),y=lum(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
- for(const d of Object.values(topicDesigns)) {
-  const rule=css.match(new RegExp('\\.topic-'+d.tone+'\\{([^}]+)\\}'))[1];
-  const bg=rule.match(/--topic-bg:(#[a-f\d]{6})/)[1],ink=rule.match(/--topic-ink:(#[a-f\d]{6})/)[1];
-  assert.ok(ratio('#183831',bg)>=4.5,d.tone);assert.ok(ratio('#435e55',bg)>=4.5,d.tone);assert.ok(ratio('#ffffff',ink)>=4.5,d.tone);
+ const color=name=>css.match(new RegExp('--'+name+':(#[a-f\\d]{6})'))[1];
+ for(const surface of ['#ffffff','#f8f9fc',color('soft')]) {
+   assert.ok(ratio(color('ink'),surface)>=4.5);
+   assert.ok(ratio(color('muted'),surface)>=4.5);
  }
+ assert.ok(ratio('#ffffff',color('primary'))>=4.5);
+ assert.ok(ratio(color('success'),'#e6f6f0')>=4.5);
+ assert.ok(ratio(color('error'),'#fff0eb')>=4.5);
+ assert.ok(ratio(color('control'),'#ffffff')>=3);
 });
 
 const {SlovariWallet,walletStorageKey}=require('../script.js');
@@ -687,4 +691,22 @@ test('DOM wallet: awards and F5, cancel, confirm, duplicate confirmation and unc
  finishCourseDOM(restored,courseLessons['m1-l1']);assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 $lovari');
  restored['to-sentences'].click();assert.deepEqual(finishSentenceDOM(restored,'m1-l1'),{en:10,kk:8,ru:2});
  assert.equal(restored['wallet-balance'].textContent,'Баланс: 200 $lovari');assert.equal(restored['wallet-sentences'].textContent,'Освоено предложений: 10');
+});
+
+test('continue: remembers the lesson on catalogue return and F5, restarts without claiming saved answers',()=>{
+ const {e,storage}=courseSession();
+ assert.equal(e['continue-panel'].hidden,true);
+ e.modules.children[0].click();e['course-lessons'].children[1].click();
+ assert.equal(e.topic.textContent,courseLessons['m1-l2'].name);
+ e['back-home'].click();e['back-modules'].click();
+ assert.equal(e['continue-panel'].hidden,false);
+ assert.ok(e['continue-title'].textContent.includes('Урок 2'));
+ assert.ok(e['continue-note'].textContent.includes('начнётся сначала'));
+ assert.equal(JSON.parse(storage.getItem(courseStorageKey)).selection.lesson,'m1-l2');
+ const restored=courseSession(storage).e;
+ assert.equal(restored.home.hidden,false);assert.equal(restored.lesson.hidden,true);
+ restored['continue-course'].click();
+ assert.equal(restored.topic.textContent,courseLessons['m1-l2'].name);
+ assert.equal(restored.progress.textContent,'Слово 1 из 10 · этап 1 из 2');
+ assert.equal(restored.options.children.length,3);
 });
