@@ -617,3 +617,74 @@ test('topic palettes: normal text and selected badges have readable contrast on 
   assert.ok(ratio('#183831',bg)>=4.5,d.tone);assert.ok(ratio('#435e55',bg)>=4.5,d.tone);assert.ok(ratio('#ffffff',ink)>=4.5,d.tone);
  }
 });
+
+const {SlovariWallet,walletStorageKey}=require('../script.js');
+test('wallet: immediate rewards, per-stage mistakes, retries and persistent deduplication',()=>{
+ const storage=memoryStorage(),wallet=new SlovariWallet(storage);
+ const game=new WordGame(seeded(51),(kind,id)=>wallet.reward(kind,id));
+ game.start('m1-l1');const id=game.entry.id;
+ game.answer(id);assert.equal(wallet.balance,0);game.answer(id);assert.equal(wallet.balance,10);
+ game.answer(id);assert.equal(wallet.balance,10);
+ const restored=new SlovariWallet(storage);restored.reward('words',id);assert.equal(restored.balance,10);
+ for(const stage of [0,1]) {
+  const trial=new WordGame(seeded(stage+100),(kind,id)=>wallet.reward(kind,id));trial.start('m2-l1');
+  if(stage===1)trial.answer(trial.entry.id);
+  trial.answer(trial.options.find(e=>e.id!==trial.entry.id).id);trial.advance();
+  trial.answer(trial.entry.id);if(stage===0)trial.answer(trial.entry.id);
+  assert.equal(wallet.balance,10);
+ }
+ const retry=new WordGame(seeded(100),(kind,id)=>wallet.reward(kind,id));retry.start('m2-l1');retry.answer(retry.entry.id);retry.answer(retry.entry.id);assert.equal(wallet.balance,20);
+});
+test('wallet: sentence requires both stages without mistakes and pays only once',()=>{
+ for(const failed of ['none','english','translation']) {
+  const wallet=new SlovariWallet(memoryStorage());
+  const sg=new SentenceGame(tasksFor('m1-l1'),seeded(60),(kind,id)=>wallet.reward(kind,id));const task=sg.task;
+  if(failed==='english'){sg.answer(sg.options.find(v=>v!==task.answer));sg.advance();}
+  sg.answer(task.answer);assert.equal(wallet.balance,0);
+  if(failed==='translation'){[...sg.pool].forEach(id=>sg.pick(id));sg.check();assert.equal(sg.phase,'translation');}
+  selectTranslation(sg);sg.check();sg.check();assert.equal(wallet.balance,failed==='none'?20:0);
+  const retry=new SentenceGame([task],seeded(1),(kind,id)=>wallet.reward(kind,id));solveSentence(retry);assert.equal(wallet.balance,20);
+  assert.equal(wallet.state.sentences.length,1);
+ }
+});
+test('wallet: full exchange preserves achievements, history, total earned and old reward IDs',()=>{
+ const storage=memoryStorage(),wallet=new SlovariWallet(storage);
+ for(const entry of courseLessons['m1-l1'].entries)wallet.reward('words',entry.id);
+ tasksFor('m1-l1').slice(0,2).forEach(t=>wallet.reward('sentences',t.id));
+ assert.equal(wallet.balance,140);assert.equal(wallet.exchange(130),false);assert.equal(wallet.exchange(140),true);
+ assert.equal(wallet.balance,0);assert.equal(wallet.earned,140);assert.equal(wallet.exchange(140),false);
+ const restored=new SlovariWallet(storage);assert.equal(restored.state.exchanges.length,1);assert.equal(restored.state.exchanges[0].amount,140);
+ assert.equal(restored.state.words.length,10);assert.equal(restored.state.sentences.length,2);
+ restored.reward('words',courseLessons['m1-l1'].entries[0].id);assert.equal(restored.balance,0);
+ restored.reward('words',courseLessons['m1-l2'].entries[0].id);assert.equal(restored.balance,10);assert.equal(restored.earned,150);
+});
+test('wallet: corrupt data, denied reads/writes and stale tabs never overwrite saved state',()=>{
+ for(const raw of ['{','null',JSON.stringify({version:1,words:['unknown'],sentences:[],exchanges:[]})]) {
+  const storage=memoryStorage({[walletStorageKey]:raw,unrelated:'keep'}),w=new SlovariWallet(storage);
+  assert.equal(w.blocked,true);w.reward('words',courseEntries[0].id);assert.equal(w.exchange(10),false);
+  assert.equal(storage.getItem(walletStorageKey),raw);assert.equal(storage.getItem('unrelated'),'keep');
+ }
+ const denied=new SlovariWallet({getItem(){throw Error();}});assert.equal(denied.blocked,true);
+ const storage=memoryStorage(),w=new SlovariWallet(storage);w.reward('words',courseEntries[0].id);
+ const before=storage.getItem(walletStorageKey);storage.setItem=()=>{throw Error();};
+ assert.equal(w.exchange(10),false);assert.equal(w.balance,10);assert.equal(w.saved,false);assert.equal(storage.getItem(walletStorageKey),before);
+ const writeDenied=new SlovariWallet({getItem:()=>null,setItem(){throw Error();}});writeDenied.reward('words',courseEntries[0].id);
+ assert.equal(writeDenied.balance,0);assert.equal(writeDenied.saved,false);assert.ok(writeDenied.message.includes('не сохранены'));
+ const shared=memoryStorage(),a=new SlovariWallet(shared),b=new SlovariWallet(shared);
+ a.reward('words',courseEntries[0].id);const latest=shared.getItem(walletStorageKey);
+ b.reward('words',courseEntries[1].id);assert.equal(b.blocked,true);assert.equal(shared.getItem(walletStorageKey),latest);
+});
+test('DOM wallet: awards and F5, cancel, confirm, duplicate confirmation and unchanged course results',()=>{
+ const {e,storage}=courseSession();e.modules.children[0].click();e['course-lessons'].children[0].click();
+ finishCourseDOM(e,courseLessons['m1-l1']);assert.equal(e['wallet-balance'].textContent,'Баланс: 100 СЛОВАРИ');
+ const results=storage.getItem(courseStorageKey);
+ e['exchange-toggle'].click();e['exchange-start'].click();e['exchange-cancel'].click();assert.equal(e['wallet-balance'].textContent,'Баланс: 100 СЛОВАРИ');
+ e['exchange-start'].click();e['exchange-confirm'].click();e['exchange-confirm'].click();
+ assert.equal(e['wallet-balance'].textContent,'Баланс: 0 СЛОВАРИ');assert.equal(e['exchange-history'].children.length,1);
+ assert.equal(e['wallet-words'].textContent,'Выучено слов: 10');assert.equal(storage.getItem(courseStorageKey),results);
+ const restored=courseSession(storage).e;assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 СЛОВАРИ');
+ assert.equal(restored['wallet-earned'].textContent,'Всего заработано: 100 СЛОВАРИ');assert.equal(restored['exchange-history'].children.length,1);
+ finishCourseDOM(restored,courseLessons['m1-l1']);assert.equal(restored['wallet-balance'].textContent,'Баланс: 0 СЛОВАРИ');
+ restored['to-sentences'].click();assert.deepEqual(finishSentenceDOM(restored,'m1-l1'),{en:10,kk:8,ru:2});
+ assert.equal(restored['wallet-balance'].textContent,'Баланс: 200 СЛОВАРИ');assert.equal(restored['wallet-sentences'].textContent,'Освоено предложений: 10');
+});

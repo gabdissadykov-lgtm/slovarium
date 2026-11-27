@@ -8,6 +8,20 @@
 <body>
 <header><span class="brand"><span class="logo" aria-hidden="true">С</span>Словариум</span><span class="header-note">Три языка. Один большой мир.</span></header>
 <main>
+<section class="wallet" aria-labelledby="wallet-title">
+<div class="wallet-heading"><h2 id="wallet-title">Мои СЛОВАРИ</h2><button id="exchange-toggle" class="secondary" aria-expanded="false" aria-controls="exchange-panel">Обмен</button></div>
+<p id="wallet-balance" class="wallet-balance"></p>
+<div class="wallet-stats"><p id="wallet-words"></p><p id="wallet-sentences"></p><p id="wallet-earned"></p></div>
+<p id="wallet-intro" class="muted">СЛОВАРИ начисляются за новые успешные прохождения.</p>
+<p class="muted">10 за слово · 20 за предложение. Без ошибок, один раз за задание.</p>
+<p id="wallet-message" role="status" aria-live="polite"></p>
+<div id="exchange-panel" hidden>
+<h3>Обмен СЛОВАРИ</h3><p>Обмен подтверждает родитель. Этот раздел пока без защиты. Курс и передачу денег вы согласуете сами.</p>
+<button id="exchange-start" class="primary">Обменять</button>
+<div id="exchange-confirmation" hidden><p id="exchange-confirm-text"></p><div class="builder-actions"><button id="exchange-cancel" class="secondary">Отмена</button><button id="exchange-confirm" class="primary">Обменять</button></div></div>
+<h3>История обменов</h3><p id="exchange-empty" class="muted">Обменов пока нет</p><ul id="exchange-history"></ul>
+</div>
+</section>
 <section id="home" aria-labelledby="home-title">
 <div id="catalog-hero"><p class="eyebrow">ТРИ ЯЗЫКА · ДЕВЯТЬ ТЕМ</p>
 <h1 id="home-title" tabindex="-1">Большой мир.<br><span>Маленькие открытия.</span></h1>
