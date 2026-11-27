@@ -4771,31 +4771,47 @@ function topicIllustration(id) {
 
 // View navigation never changes the active exercise or writes learning data.
 function initializeInterface() {
-  const $=id=>document.getElementById(id),views=['learning','progress-view','wallet-view','settings-view'];
-  let current='learning',returnView='learning',opener=null,ready=false,topics=()=>{};
+  const $=id=>document.getElementById(id),views=['welcome','learning','progress-view','wallet-view','settings-view'];
+  let current=null,returnView='learning',opener=null,ready=false,authenticated=false,topics=()=>{};
   function open(view,trigger) {
-    if(!views.includes(view)||(!ready&&view!=='settings-view'))return;
+    if(!views.includes(view)||(!ready&&!['settings-view','welcome'].includes(view)))return;
     if(current===view)return;
-    if(view!=='learning' && current==='learning'){returnView=current;opener=trigger||document.activeElement;}
+    if(view!=='learning'&&current==='learning'){returnView=current;opener=trigger||document.activeElement;}
     if(view==='learning')returnView='learning';
     if(current==='wallet-view') {
       $('exchange-panel').hidden=true;$('exchange-confirmation').hidden=true;
       $('exchange-toggle').setAttribute('aria-expanded','false');
     }
+    $('word-tooltip').hidden=true;
     current=view;
     for(const id of views)$(id).hidden=id!==view;
+    $('welcome-nav').hidden=view!=='welcome';
+    $('app-nav').hidden=!ready||view==='welcome';
+    $('header-login').hidden=authenticated||view!=='welcome';
+    $('header-balance').hidden=!ready||view==='welcome';
+    $('profile-button').hidden=!authenticated&&Boolean(window.SlovariumOnline);
     for(const button of document.querySelectorAll('[data-view]')) {
       if(button.dataset.view===view)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
     }
-    const heading=view==='learning'?($('home').hidden?$('topic'):$('home-title')):$(view==='progress-view'?'progress-title':view==='wallet-view'?'wallet-view-title':'settings-title');
+    const heading=view==='welcome'?$('welcome-title'):view==='learning'?($('home').hidden?$('topic'):$('home-title')):$(view==='progress-view'?'progress-title':view==='wallet-view'?'wallet-view-title':'settings-title');
     heading.setAttribute('tabindex','-1');heading.focus();
   }
   for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>{
-    if(button.dataset.view==='learning'&&!ready)return;
-    open(button.dataset.view,button);
-    if(button.dataset.view==='learning')topics();
+    const view=button.dataset.view==='learning'&&!ready?'welcome':button.dataset.view;
+    open(view,button);
+    if(view==='learning')topics();
   });
-  for(const button of document.querySelectorAll('[data-return]'))button.addEventListener('click',()=>{const target=opener;open(returnView);if(target&&!target.closest('[hidden]'))target.focus();});
+  for(const button of document.querySelectorAll('[data-return]'))button.addEventListener('click',()=>{const target=opener;open(ready?returnView:'welcome');if(ready&&target&&!target.closest('[hidden]'))target.focus();});
+  for(const button of document.querySelectorAll('[data-scroll]'))button.addEventListener('click',()=>{
+    if(current!=='welcome')open('welcome');
+    const target=$(button.dataset.scroll);target.scrollIntoView({block:'start'});
+    target.setAttribute('tabindex','-1');target.focus({preventScroll:true});
+  });
+  for(const button of document.querySelectorAll('[data-login]'))button.addEventListener('click',()=>{
+    if(authenticated){open('settings-view');return;}
+    open('welcome');$(button.dataset.login==='parent'?'parent-login':'child-login').click();
+  });
+  $('retry-connection').addEventListener('click',()=>location.reload());
   const statusSources=['account-status','wallet-message','storage-notice'];
   function mirrorStatus(){
     const messages=statusSources.filter(id=>id!=='account-status'||window.SlovariumOnline).map(id=>$(id).textContent.trim()).filter(Boolean);
@@ -4805,9 +4821,15 @@ function initializeInterface() {
   const observer=new MutationObserver(mirrorStatus);
   for(const id of statusSources)observer.observe($(id),{childList:true,characterData:true,subtree:true});
   $('local-settings-note').hidden=Boolean(window.SlovariumOnline);
-  if(window.SlovariumOnline){$('profile-button').textContent='Войти';open('settings-view');}
+  open(window.SlovariumOnline?'welcome':'learning');
   mirrorStatus();
-  return {open,onTopics(fn){topics=fn;},setReady(value=true){ready=value;for(const id of ['nav-learning','nav-progress','header-balance'])$(id).disabled=!value;},
+  return {open,onTopics(fn){topics=fn;},setReady(value=true){
+      ready=value;for(const id of ['nav-learning','nav-progress','header-balance'])$(id).disabled=!value;
+      $('app-nav').hidden=!value||current==='welcome';$('header-balance').hidden=!value||current==='welcome';
+    },authenticated(value){
+      authenticated=value;$('welcome-login-actions').hidden=value;$('welcome-resume').hidden=!value;
+      $('header-login').hidden=value||current!=='welcome';$('profile-button').hidden=!value;
+    },loginReady(value){for(const button of document.querySelectorAll('[data-login],#parent-login,#child-login'))button.disabled=!value;},
     profile(name){$('profile-button').textContent=name;$('profile-button').title=name;},mirrorStatus};
 }
 

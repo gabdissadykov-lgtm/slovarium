@@ -29,3 +29,22 @@ test('import: server-compatible backup validates and invalid reward IDs cannot b
  assert.equal(load({...source,words:[source.words[0],source.words[0]]}).blocked,true);
  assert.equal(load({...source,exchanges:[{amount:20,date:new Date().toISOString()}]}).blocked,true);
 });
+
+test('participants: legacy compatibility, archive generation and idempotent restoration preserve data',()=>{
+ const wallet=model.addReward(model.emptyWallet(),'words',core.courseEntries[0].id);
+ const original={name:'Алия',wallet,activity:true};
+ assert.equal(model.isActive(original),true);assert.equal(model.accessVersion(original),0);
+ assert.equal(model.participantName('  Әлия  '),'Әлия');
+ for(const value of ['', '   ', 'а'.repeat(41),null])assert.throws(()=>model.participantName(value));
+ const archived=model.archiveParticipant(original,true);
+ assert.equal(archived.archived,true);assert.equal(archived.accessVersion,1);assert.equal(archived.wallet,wallet);
+ assert.equal(model.archiveParticipant(archived,true),archived);
+ assert.throws(()=>model.requireActive(archived,0),/отключён/);
+ const restored=model.archiveParticipant(archived,false);
+ assert.equal(restored.accessVersion,1);assert.equal(restored.wallet,wallet);
+ assert.throws(()=>model.requireActive(restored,0),/отключён/);
+ assert.equal(model.requireActive(restored,1),restored);
+ assert.equal(model.archiveParticipant(restored,false),restored);
+ assert.equal(model.archiveParticipant(restored,true).accessVersion,2);
+ assert.equal(model.balance(restored.wallet),10);
+});

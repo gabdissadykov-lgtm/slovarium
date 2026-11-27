@@ -4,10 +4,31 @@ service cloud.firestore {
   function signed() {return request.auth != null;}
   function google() {return signed() && request.auth.token.firebase.sign_in_provider == 'google.com';}
   function parent(family) {return google() && request.auth.uid == family;}
+  // Missing metadata means an existing active profile and its original device generation.
+  function activeData(d) {return d.get('archived',false) == false;}
+  function generation(d) {return d.get('accessVersion',0);}
+  function activeProfile(family,child) {
+   return exists(/databases/$(database)/documents/families/$(family)/children/$(child)) &&
+    activeData(get(/databases/$(database)/documents/families/$(family)/children/$(child)).data);
+  }
+  function activeAfter(family,child) {
+   return activeData(getAfter(/databases/$(database)/documents/families/$(family)/children/$(child)).data);
+  }
   function ownChild(family, child) {
    return signed() && exists(/databases/$(database)/documents/devices/$(request.auth.uid)) &&
     get(/databases/$(database)/documents/devices/$(request.auth.uid)).data.family == family &&
-    get(/databases/$(database)/documents/devices/$(request.auth.uid)).data.child == child;
+    get(/databases/$(database)/documents/devices/$(request.auth.uid)).data.child == child && activeProfile(family,child) &&
+    generation(get(/databases/$(database)/documents/devices/$(request.auth.uid)).data) ==
+     generation(get(/databases/$(database)/documents/families/$(family)/children/$(child)).data);
+  }
+  function validMetadata(d) {
+   return d.name is string && d.name.size()>0 && d.name.size()<=40 && d.get('archived',false) is bool &&
+    generation(d) is int && generation(d)>=0 && generation(d)<2147483647;
+  }
+  function parentUpdate(old,next) {
+   return validMetadata(next) &&
+    generation(next) == generation(old) + ((activeData(old) && !activeData(next)) ? 1 : 0) &&
+    ((activeData(old) && activeData(next)) || next.diff(old).affectedKeys().hasOnly(['name','archived','accessVersion']));
   }
   function known(id) {
    return id.matches('m1-r(00[1-9]|0[1-8][0-9]|090)|m2-r(09[1-9]|1[0-7][0-9]|18[0-7])|m3-r(18[8-9]|19[0-9]|2[0-7][0-9]|28[0-2])|m4-r(28[3-9]|29[0-9]|3[0-8][0-9])|m5-r(39[0-9]|4[0-7][0-9]|48[0-7])|m6-r(48[8-9]|49[0-9]|5[0-8][0-9])|m7-r(59[0-9]|6[0-7][0-9]|68[0-8])|m8-r(689|69[0-9]|7[0-6][0-9]|77[0-1])|m9-r(77[2-9]|7[8-9][0-9]|8[0-1][0-9]|82[0-9])');
@@ -27,23 +48,24 @@ service cloud.firestore {
    allow create: if signed() && request.auth.uid == uid && request.auth.token.firebase.sign_in_provider == 'anonymous' &&
     request.resource.data.keys().hasOnly(['family','child']) && request.resource.data.family == '' && request.resource.data.child == '';
    allow update: if google() && (resource.data.family == '' || resource.data.family == request.auth.uid) &&
-    request.resource.data.keys().hasOnly(['family','child']) &&
+    request.resource.data.keys().hasOnly(['family','child','accessVersion']) && generation(request.resource.data) is int && generation(request.resource.data)>=0 &&
     ((request.resource.data.family == '' && request.resource.data.child == '' && resource.data.family == request.auth.uid) ||
      (request.resource.data.family == request.auth.uid && request.resource.data.child is string &&
-      exists(/databases/$(database)/documents/families/$(request.auth.uid)/children/$(request.resource.data.child))));
+      activeProfile(request.auth.uid,request.resource.data.child) && activeAfter(request.auth.uid,request.resource.data.child) &&
+      generation(request.resource.data) == generation(getAfter(/databases/$(database)/documents/families/$(request.auth.uid)/children/$(request.resource.data.child)).data)));
    allow delete: if false;
   }
   match /families/{family}/children/{child} {
    allow read: if parent(family) || ownChild(family,child);
-   allow create: if parent(family) && request.resource.data.name is string && request.resource.data.name.size()>0 && request.resource.data.name.size()<=40 &&
+   allow create: if parent(family) && validMetadata(request.resource.data) && activeData(request.resource.data) && generation(request.resource.data)==0 &&
     request.resource.data.wallet == {'version':1,'words':[],'sentences':[],'exchanges':[]} && request.resource.data.activity == false;
-   allow update: if parent(family) || (ownChild(family,child) &&
+   allow update: if (parent(family) && parentUpdate(resource.data,request.resource.data)) || (ownChild(family,child) && activeAfter(family,child) &&
     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wallet','activity']) && request.resource.data.activity == true &&
     childWallet(resource.data.wallet,request.resource.data.wallet));
    allow delete: if false;
    match /exchanges/{index} {
     allow read: if parent(family) || ownChild(family,child);
-    allow create: if parent(family);
+    allow create: if parent(family) && activeProfile(family,child) && activeAfter(family,child);
     allow update,delete: if false;
    }
    match /results/{lesson} {
@@ -65,8 +87,8 @@ service cloud.firestore {
       (!('legacySentences' in d) || d.legacySentences==null || score(d.legacySentences,(total / 2)));
     }
     allow read: if parent(family) || ownChild(family,child);
-    allow create: if (parent(family) || ownChild(family,child)) && getAfter(/databases/$(database)/documents/families/$(family)/children/$(child)).data.activity == true && validResult();
-    allow update: if (parent(family) || ownChild(family,child)) && validResult() &&
+    allow create: if (parent(family) || ownChild(family,child)) && activeProfile(family,child) && activeAfter(family,child) && getAfter(/databases/$(database)/documents/families/$(family)/children/$(child)).data.activity == true && validResult();
+    allow update: if (parent(family) || ownChild(family,child)) && activeProfile(family,child) && activeAfter(family,child) && validResult() &&
      (!('cards' in resource.data) || resource.data.cards==null || (request.resource.data.cards!=null && improved(resource.data.cards,request.resource.data.cards))) &&
      (!('sentences' in resource.data) || resource.data.sentences==null || (request.resource.data.sentences!=null && improved(resource.data.sentences,request.resource.data.sentences)));
     allow delete: if false;

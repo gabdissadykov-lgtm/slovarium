@@ -6,3 +6,6 @@ window.SlovariumFirebaseConfig={
   appId:'1:394074905373:web:1d4eae08cc9e070e415ff4'
 };
 window.SlovariumOnline=location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1';
+// Enable only after publishing the generation-aware rules from specification 012.
+// This rollout switch is not an access control mechanism; Firestore rules enforce access.
+window.SlovariumArchiveEnabled=false;

@@ -20,7 +20,23 @@ function mergeResults(old,next){
  for(const level of ['cards','sentences','legacySentences'])if(next[level]&&better(result[level],next[level]))result[level]=next[level];
  return {...result,signature:next.signature};
 }
-const api={emptyWallet,earned,balance,addReward,exchange,better,mergeResults};
+const accessVersion=profile=>profile.accessVersion??0;
+const isActive=profile=>Boolean(profile)&&profile.archived!==true;
+function requireActive(profile,expectedVersion=accessVersion(profile||{})){
+ if(!isActive(profile)||accessVersion(profile)!==expectedVersion)throw Error('Доступ к профилю отключён. Обратитесь к родителю.');
+ return profile;
+}
+function participantName(value){
+ const name=typeof value==='string'?value.trim():'';
+ if(!name||name.length>40)throw Error('Введите имя от 1 до 40 символов');
+ return name;
+}
+function archiveParticipant(profile,archived){
+ if(typeof archived!=='boolean')throw Error('Неверное состояние участника');
+ if((profile.archived===true)===archived)return profile;
+ return {...profile,archived,accessVersion:accessVersion(profile)+(archived?1:0)};
+}
+const api={emptyWallet,earned,balance,addReward,exchange,better,mergeResults,accessVersion,isActive,requireActive,participantName,archiveParticipant};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 else root.SlovariumCloudModel=api;
 })(typeof window==='undefined'?globalThis:window);
