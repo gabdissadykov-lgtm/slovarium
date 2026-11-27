@@ -4,24 +4,26 @@ const core=require('../script.js'),model=require('../cloud-model.js');
 class Element{
  constructor(){this.hidden=false;this.children=[];this.value='';this.files=[];this.textContent='';this.attributes={};}
  setAttribute(name,value){this.attributes[name]=String(value);}
- addEventListener(name,fn){this[name]=fn;}append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}focus(){}click(){return this.onclick?.();}
+ addEventListener(name,fn){this[name]=fn;}append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}focus(){}click(){if(!this.disabled)return this.onclick?.();}
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle(){for(let i=0;i<12;i++)await tick();}
-function storage(){const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k),map};}
+function storage(){const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k),get length(){return map.size;},key:i=>[...map.keys()][i]??null,map};}
 function backend(){
- const docs=new Map(),listeners=[];let serial=Promise.resolve();
+ const docs=new Map(),listeners=[],controls={batch:0,failBatchAt:0,onQuery:null};let serial=Promise.resolve();
  const snap=ref=>({id:ref.path.split('/').at(-1),ref,exists:()=>docs.has(ref.path),data:()=>structuredClone(docs.get(ref.path))});
- const get=(ref)=>ref.type==='collection'?{docs:[...docs.keys()].filter(k=>k.startsWith(ref.path+'/')&&k.split('/').length===ref.path.split('/').length+1).map(path=>snap({path})).filter(d=>!ref.filters||ref.filters.every(f=>d.data()[f.field]===f.value))}:snap(ref);
+ const get=(ref)=>ref.type==='collection'?{docs:[...docs.keys()].filter(k=>k.startsWith(ref.path+'/')&&k.split('/').length===ref.path.split('/').length+1).map(path=>snap({path})).filter(d=>!ref.filters||ref.filters.every(f=>d.data()[f.field]===f.value)).slice(0,ref.max??Infinity)}:snap(ref);
  const notify=()=>listeners.slice().forEach(l=>queueMicrotask(()=>{if(listeners.includes(l))l.fn(get(l.ref));}));
- const api={getFirestore:()=>({}),doc:(_, ...path)=>({type:'doc',path:path.join('/')}),collection:(_, ...path)=>({type:'collection',path:path.join('/')}),where:(field,op,value)=>({field,value}),query:(ref,...filters)=>({...ref,filters}),
+ const api={getFirestore:()=>({}),doc:(_, ...path)=>({type:'doc',path:path.join('/')}),collection:(_, ...path)=>({type:'collection',path:path.join('/')}),where:(field,op,value)=>({field,value}),limit:max=>({max}),query:(ref,...filters)=>({...ref,filters:filters.filter(f=>f.field),max:filters.find(f=>f.max)?.max}),
+  async getDocsFromServer(ref){const result=get(ref);controls.onQuery?.(ref,result);return result;},
+  writeBatch(){const refs=[];return {delete:ref=>refs.push(ref),async commit(){controls.batch++;if(controls.batch===controls.failBatchAt)throw Object.assign(Error('Сбой сети'),{code:'unavailable'});for(const ref of refs)docs.delete(ref.path);notify();}};},
   serverTimestamp:()=>({server:true}),Timestamp:{fromDate:d=>d.toISOString()},
   onSnapshot(ref,fn){const l={ref,fn};listeners.push(l);queueMicrotask(()=>fn(get(ref)));return ()=>listeners.splice(listeners.indexOf(l),1);},
-  runTransaction(db,fn){const task=serial.then(async()=>{const writes=[];const tx={get:async ref=>snap(ref),set:(ref,value)=>writes.push([ref,value]),update:(ref,value)=>writes.push([ref,{...docs.get(ref.path),...value}])};await fn(tx);for(const [ref,value]of writes)docs.set(ref.path,structuredClone(value));notify();});serial=task.catch(()=>{});return task;},
+  runTransaction(db,fn){const task=serial.then(async()=>{const writes=[];const tx={get:async ref=>snap(ref),set:(ref,value)=>writes.push([ref,value]),update:(ref,value)=>writes.push([ref,{...docs.get(ref.path),...value}]),delete:ref=>writes.push([ref,null])};await fn(tx);for(const [ref,value]of writes){if(value===null)docs.delete(ref.path);else docs.set(ref.path,structuredClone(value));}notify();});serial=task.catch(()=>{});return task;},
   async addDoc(ref,value){const id='kid'+(docs.size+1),path=ref.path+'/'+id;docs.set(path,structuredClone(value));notify();return {id,path};},
   async updateDoc(ref,value){docs.set(ref.path,{...docs.get(ref.path),...value});notify();}
  };
- return {docs,api,notify};
+ return {docs,api,notify,controls};
 }
 async function session(back,user,options={}){
  const elements={};for(const [,id]of fs.readFileSync('index.html','utf8').matchAll(/id="([^"]+)"/g))elements[id]=new Element();
@@ -33,7 +35,7 @@ async function session(back,user,options={}){
   location:{protocol:'https:',reload(){context.reloads++;}},reloads:0,
   document:{getElementById:id=>elements[id],querySelector:()=>walletElement,createElement:()=>new Element()},
   __app:{initializeApp:()=>({})},__auth:A,__firestore:back.api};
- context.window={SlovariumOnline:true,SlovariumArchiveEnabled:options.archiveEnabled!==false,SlovariumFirebaseConfig:{},SlovariumCloudModel:model,SlovariumCore:{...core,mount:x=>{mounted=x;x.repaint=()=>{};}},addEventListener:(k,fn)=>events[k]=fn,confirm:()=>true};
+ context.window={SlovariumOnline:true,SlovariumFirebaseConfig:{},SlovariumCloudModel:model,SlovariumCore:{...core,mount:x=>{mounted=x;x.repaint=()=>{};}},addEventListener:(k,fn)=>events[k]=fn,confirm:()=>true};
  let source=fs.readFileSync('cloud.js','utf8');
  for(const [name,key]of [['app','__app'],['auth','__auth'],['firestore','__firestore']])source=source.replace(`import('https://www.gstatic.com/firebasejs/13.4.0/firebase-${name}.js')`,`Promise.resolve(${key})`);
  vm.runInNewContext(source,context);await settle();
@@ -92,66 +94,65 @@ function buttonIn(root,label){
  if(root.textContent===label&&root.onclick)return root;
  for(const child of root.children||[]){const found=buttonIn(child,label);if(found)return found;}
 }
-test('participants: rename changes only name; cancel archive keeps data; archive/restore keeps wallet and revokes devices',async()=>{
- const back=backend(),family='parent-uid',child='child-1',uid='anonymous-uid-123456789012345';
- const path=`families/${family}/children/${child}`;
- const wallet=model.addReward(model.emptyWallet(),'words',core.courseEntries[0].id);
- back.docs.set(path,{name:'Алия',wallet,activity:true});back.docs.set('devices/'+uid,{family,child});
- const parent=await session(back,{uid:family,isAnonymous:false}),kid=await session(back,{uid,isAnonymous:true});
- const e=parent.elements;
- buttonIn(e['family-children'],'Изменить имя').click();e['participant-name'].value='  Әлия  ';
- await e['participant-rename-form'].onsubmit({preventDefault(){}});await settle();
- assert.equal(back.docs.get(path).name,'Әлия');assert.deepEqual(back.docs.get(path).wallet,wallet);
- buttonIn(e['family-children'],'Убрать из участников').click();e['participant-cancel'].click();
- await e['participant-confirm'].click();assert.equal(back.docs.get(path).archived,undefined);
- buttonIn(e['family-children'],'Убрать из участников').click();await e['participant-confirm'].click();await settle();
- assert.equal(back.docs.get(path).archived,true);assert.equal(back.docs.get(path).accessVersion,1);
- assert.equal(e['family-children'].children.length,0);assert.equal(e['archived-children'].children.length,1);
- assert.equal(kid.active.wallet.blocked,true);assert.match(kid.elements['account-status'].textContent,/отключён/);
- const oldSession=await session(back,{uid,isAnonymous:true});assert.equal(oldSession.active,undefined);
- await buttonIn(e['archived-children'],'Вернуть в участники').click();await settle();
- assert.equal(back.docs.get(path).archived,false);assert.equal(back.docs.get(path).accessVersion,1);assert.deepEqual(back.docs.get(path).wallet,wallet);
- const stillOld=await session(back,{uid,isAnonymous:true});assert.equal(stillOld.active,undefined);
- back.docs.set('devices/'+uid,{family,child,accessVersion:1});back.notify();await settle();
- const newSession=await session(back,{uid,isAnonymous:true});assert.equal(newSession.active.wallet.balance,10);
- newSession.active.wallet.reward('words',core.courseEntries[0].id);await settle();assert.equal(newSession.active.wallet.balance,10);
-});
-test('participants: pending rewards from revoked generation are never imported into restored access',async()=>{
- const back=backend(),family='parent-uid',child='child-1',uid='anonymous-uid-123456789012345',local=storage();
- const path=`families/${family}/children/${child}`;back.docs.set(path,{name:'Алия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
- const kid=await session(back,{uid,isAnonymous:true},{local});kid.context.navigator.onLine=false;
- kid.active.wallet.reward('words',core.courseEntries[0].id);assert.equal(kid.active.wallet.balance,0);
- const parent=await session(back,{uid:family,isAnonymous:false});
- buttonIn(parent.elements['family-children'],'Убрать из участников').click();await parent.elements['participant-confirm'].click();await settle();
- await buttonIn(parent.elements['archived-children'],'Вернуть в участники').click();await settle();
- kid.context.navigator.onLine=true;kid.events.online();await settle();assert.equal(model.balance(back.docs.get(path).wallet),0);
- back.docs.set('devices/'+uid,{family,child,accessVersion:1});back.notify();await settle();
- const restored=await session(back,{uid,isAnonymous:true},{local});await settle();assert.equal(restored.active.wallet.balance,0);
- assert.ok([...local.map.keys()].some(k=>!k.endsWith(':v1')));
- restored.active.wallet.reward('words',core.courseEntries[1].id);await settle();assert.equal(restored.active.wallet.balance,10);
- assert.deepEqual(back.docs.get(path).wallet.words,[core.courseEntries[1].id]);
-});
-test('participants: offline actions fail without mutation; archived selection and stale exchange cannot remain active',async()=>{
- const back=backend(),family='parent-uid',child='child-1',path=`families/${family}/children/${child}`;
- const wallet=model.addReward(model.emptyWallet(),'words',core.courseEntries[0].id);back.docs.set(path,{name:'Алия',wallet,activity:true});
- const selection=storage();selection.setItem('slovarium.selectedChild',child);
- const parent=await session(back,{uid:family,isAnonymous:false},{session:selection}),e=parent.elements;
- parent.context.navigator.onLine=false;buttonIn(e['family-children'],'Убрать из участников').click();await e['participant-confirm'].click();
- assert.equal(back.docs.get(path).archived,undefined);assert.equal(e['participant-confirmation'].hidden,false);assert.match(e['account-status'].textContent,/интернету/);
- parent.context.navigator.onLine=true;await e['participant-confirm'].click();await settle();
- assert.equal(parent.active.wallet.blocked,true);assert.ok(parent.context.reloads>=1);assert.equal(selection.getItem('slovarium.selectedChild'),null);
- assert.equal(await parent.active.wallet.exchange(10),false);assert.equal(model.balance(back.docs.get(path).wallet),10);
- const reloaded=await session(back,{uid:family,isAnonymous:false},{session:selection});assert.equal(reloaded.active,undefined);assert.equal(reloaded.elements['participants-empty'].hidden,false);
-});
 
-test('participants rollout: archive is gated until rules deploy; legacy device pairing still works',async()=>{
+test('deletion: rename and cancel preserve data; permanent delete cleans all pages, devices, queues and import links',async()=>{
  const back=backend(),family='parent-uid',child='child-1',uid='anonymous-uid-123456789012345';
- const path=`families/${family}/children/${child}`;back.docs.set(path,{name:'Алия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family:'',child:''});
+ const path=`families/${family}/children/${child}`,wallet=model.addReward(model.emptyWallet(),'words',core.courseEntries[0].id);
+ back.docs.set(path,{name:'Алия',wallet,activity:true});back.docs.set(path+'/results/m1-l1',{signature:'test'});
+ for(let i=0;i<205;i++)back.docs.set(path+'/exchanges/'+i,{amount:1});
+ back.docs.set('devices/'+uid,{family,child});back.docs.set(`families/${family}/imports/fingerprint`,{child,createdAt:'date'});
+ const other={name:'Другой ребёнок',wallet:model.emptyWallet(),activity:false};back.docs.set(`families/${family}/children/other`,other);
+ back.docs.set('families/other-family/children/child-1',other);
+ const local=storage();local.setItem(`slovarium.pending:old:${family}:${child}:v9`,'obsolete');local.setItem(`slovarium.pending:old:${family}:other`,'keep');local.setItem(`slovarium.pending:old:other-family:${child}`,'keep');
+ const parent=await session(back,{uid:family,isAnonymous:false},{local}),kid=await session(back,{uid,isAnonymous:true});
+ kid.context.navigator.onLine=false;kid.active.wallet.reward('sentences',core.courseEntries[0].id);
+ buttonIn(parent.elements['family-children'],'Изменить имя').click();parent.elements['participant-name'].value='  Әлия  ';
+ await parent.elements['participant-rename-form'].onsubmit({preventDefault(){}});await settle();assert.equal(back.docs.get(path).name,'Әлия');assert.deepEqual(back.docs.get(path).wallet,wallet);
+ buttonIn(parent.elements['family-children'],'Удалить ребёнка').click();parent.elements['participant-cancel'].click();await parent.elements['participant-confirm'].click();assert.ok(back.docs.has(path));
+ buttonIn(parent.elements['family-children'],'Удалить ребёнка').click();await parent.elements['participant-confirm'].click();await settle();
+ assert.equal(back.docs.has(path),false);assert.ok(![...back.docs.keys()].some(k=>k.startsWith(path+'/')));
+ assert.deepEqual(back.docs.get('devices/'+uid),{family:'',child:''});assert.deepEqual(back.docs.get(`families/${family}/imports/fingerprint`),{used:true});
+ assert.deepEqual(back.docs.get(`families/${family}/children/other`),other);assert.deepEqual(back.docs.get('families/other-family/children/child-1'),other);
+ assert.equal(kid.active.wallet.blocked,true);assert.ok(![...kid.local.map.keys()].some(k=>model.profileQueueKey(k,family,child)));
+ assert.ok(![...local.map.keys()].some(k=>model.profileQueueKey(k,family,child)));assert.equal(local.map.size,2);
+ kid.context.navigator.onLine=true;kid.events.online();await settle();assert.equal(back.docs.has(path),false);
+ assert.ok(back.controls.batch>=4);assert.equal(parent.elements['archived-children'].children.length,0);
+});
+test('deletion: deleting the open and last child closes the exercise without interrupting cleanup; same name creates a fresh ID',async()=>{
+ const back=backend(),family='parent-uid',child='child-1',path=`families/${family}/children/${child}`;
+ back.docs.set(path,{name:'Алия',wallet:model.addReward(model.emptyWallet(),'words',core.courseEntries[0].id),activity:true});back.docs.set(path+'/results/m1-l1',{signature:'test'});
  const selection=storage();selection.setItem('slovarium.selectedChild',child);
- const parent=await session(back,{uid:family,isAnonymous:false},{session:selection,archiveEnabled:false}),e=parent.elements;
- const remove=buttonIn(e['family-children'],'Убрать из участников');assert.equal(remove.disabled,true);assert.equal(e['archive-availability'].hidden,false);
- remove.onclick();await e['participant-confirm'].click();assert.equal(back.docs.get(path).archived,undefined);assert.match(e['account-status'].textContent,/пока недоступно/);
- e['device-input'].value=uid;e['device-pair-form'].onsubmit({preventDefault(){}});await settle();
- assert.deepEqual(back.docs.get('devices/'+uid),{family,child});
- assert.match(fs.readFileSync('firebase-config.js','utf8'),/SlovariumArchiveEnabled=false/);
+ const parent=await session(back,{uid:family,isAnonymous:false},{session:selection}),oldWallet=parent.active.wallet;
+ buttonIn(parent.elements['family-children'],'Удалить ребёнка').click();await parent.elements['participant-confirm'].click();await settle();
+ assert.equal(oldWallet.blocked,true);assert.equal(await oldWallet.exchange(10),false);assert.equal(parent.context.reloads,0);assert.equal(selection.getItem('slovarium.selectedChild'),null);
+ assert.equal(back.docs.has(path),false);assert.equal(parent.elements['participants-empty'].hidden,false);assert.equal(parent.elements['home'].hidden,true);
+ parent.elements['child-name'].value='Алия';parent.elements['child-create-form'].onsubmit({preventDefault(){}});await settle();
+ const childDocs=[...back.docs.entries()].filter(([k])=>k.startsWith(`families/${family}/children/`));assert.equal(childDocs.length,1);assert.notEqual(childDocs[0][0],path);assert.equal(model.balance(childDocs[0][1].wallet),0);
+});
+test('deletion: offline confirmation does nothing; partial failure stays locked and can resume after a fresh session',async()=>{
+ const back=backend(),family='parent-uid',child='child-1',path=`families/${family}/children/${child}`;
+ back.docs.set(path,{name:'Алия',wallet:model.emptyWallet(),activity:false});back.docs.set(path+'/results/m1-l1',{signature:'test'});back.docs.set(path+'/exchanges/0',{amount:1});
+ const parent=await session(back,{uid:family,isAnonymous:false});parent.context.navigator.onLine=false;
+ buttonIn(parent.elements['family-children'],'Удалить ребёнка').click();await parent.elements['participant-confirm'].click();assert.equal(back.docs.get(path).deleting,undefined);
+ parent.context.navigator.onLine=true;back.controls.failBatchAt=2;await parent.elements['participant-confirm'].click();await settle();
+ assert.equal(back.docs.get(path).deleting,true);assert.equal(back.docs.get(path).accessVersion,1);assert.equal(back.docs.has(path+'/results/m1-l1'),false);assert.equal(back.docs.has(path+'/exchanges/0'),true);
+ assert.match(parent.elements['account-status'].textContent,/не завершено/);assert.equal(parent.elements['family-children'].children.length,0);
+ const afterRefresh=await session(back,{uid:family,isAnonymous:false});assert.equal(afterRefresh.active,undefined);
+ back.controls.failBatchAt=0;await buttonIn(afterRefresh.elements['deleting-children'],'Продолжить удаление').click();await settle();assert.equal(back.docs.has(path),false);assert.equal(afterRefresh.elements['deleting-children'].children.length,0);
+});
+test('deletion: archived profiles delete permanently; repeated workers do not touch a rebound device or another profile',async()=>{
+ const back=backend(),family='parent-uid',child='child-1',path=`families/${family}/children/${child}`,uid='anonymous-uid-123456789012345';
+ back.docs.set(path,{name:'Алия',wallet:model.emptyWallet(),activity:false,archived:true,accessVersion:3});
+ const other={name:'Другой',wallet:model.emptyWallet(),activity:false};back.docs.set(`families/${family}/children/other`,other);back.docs.set('devices/'+uid,{family,child,accessVersion:3});
+ back.controls.onQuery=(ref,snap)=>{if(ref.path==='devices'&&snap.docs.length){back.docs.set('devices/'+uid,{family,child:'other',accessVersion:0});back.controls.onQuery=null;}};
+ const first=await session(back,{uid:family,isAnonymous:false}),second=await session(back,{uid:family,isAnonymous:false});
+ buttonIn(first.elements['archived-children'],'Удалить ребёнка').click();buttonIn(second.elements['archived-children'],'Удалить ребёнка').click();
+ await Promise.all([first.elements['participant-confirm'].click(),second.elements['participant-confirm'].click()]);await settle();
+ assert.equal(back.docs.has(path),false);assert.deepEqual(back.docs.get('devices/'+uid),{family,child:'other',accessVersion:0});assert.deepEqual(back.docs.get(`families/${family}/children/other`),other);
+ assert.equal(buttonIn(first.elements['archived-children'],'Вернуть в участники'),undefined);
+});
+test('deletion: child cannot start cleanup even if a parent confirmation is forced',async()=>{
+ const back=backend(),family='parent-uid',child='child-1',uid='anonymous-uid-123456789012345',path=`families/${family}/children/${child}`;
+ back.docs.set(path,{name:'Алия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
+ const kid=await session(back,{uid,isAnonymous:true});await kid.elements['participant-confirm'].click();assert.ok(back.docs.has(path));assert.equal(back.docs.get(path).deleting,undefined);
 });

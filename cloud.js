@@ -42,13 +42,25 @@ async function startCloud(){
  const resultRef=(family,id,lesson)=>F.doc(db,'families',family,'children',id,'results',lesson);
  let family=null,selected=null,role=null,children=[],mounted=false,stops=[],profileStop=null,devicesStop=null,importData=null;
  let queue=null,queueKey=null,flushing=false,queueDurable=true,historyDates={};
- let profileVersion=0,bindingVersion=0,profileListeners=[],editingId=null,archiveId=null,participantBusy=false;
+ let profileVersion=0,bindingVersion=0,profileListeners=[],editingId=null,deleteId=null,participantBusy=false,deletionInProgress=null;
  function withHistory(w){return {...w,exchanges:w.exchanges.map((item,i)=>({...item,date:historyDates[i]||item.date}))};}
  function status(text){$('account-status').textContent=text;}
- function closeEditors(){editingId=null;archiveId=null;$('participant-editor').hidden=true;$('participant-confirmation').hidden=true;}
- function revokeProfile(message){
+ function closeEditors(){editingId=null;deleteId=null;$('participant-editor').hidden=true;$('participant-confirmation').hidden=true;}
+ function purgeProfileCache(id){
+  let cleaned=true;
+  try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key&&model.profileQueueKey(key,family,id))localStorage.removeItem(key);}}catch{cleaned=false;}
+  try{if(sessionStorage.getItem('slovarium.selectedChild')===id)sessionStorage.removeItem('slovarium.selectedChild');}catch{cleaned=false;}
+  return cleaned;
+ }
+ function purgeDetachedQueues(){
+  try{const prefix=`slovarium.pending:${auth.currentUser.uid}:`;for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(prefix))localStorage.removeItem(key);}}catch{}
+ }
+ function revokeProfile(message,{reload=true,purge=false}={}){
+  if(purge&&selected)purgeProfileCache(selected);
   if(active){active.wallet.blocked=true;active.wallet.saved=false;}
-  active=null;$('backup-export').disabled=true;closeEditors();
+  active=null;queue={rewards:[],results:{}};importData=null;
+  $('import-preview').hidden=true;$('import-file').value='';
+  $('backup-export').disabled=true;closeEditors();
   profileListeners.forEach(stop=>stop());profileListeners=[];
   if(profileStop){profileStop();profileStop=null;}if(devicesStop){devicesStop();devicesStop=null;}
   window.SlovariumUI?.setReady(false);window.SlovariumUI?.open('settings-view');
@@ -61,11 +73,12 @@ async function startCloud(){
   status(message);
   if(role==='parent'){
    try{sessionStorage.removeItem('slovarium.selectedChild');sessionStorage.setItem('slovarium.participantNotice',message);}catch{}
-   location.reload();
+   selected=null;window.SlovariumUI?.profile('Родитель');$('account-title').textContent='Кабинет родителя';
+   if(reload)location.reload();
   }else{window.SlovariumUI?.profile('Доступ отключён');$('child-pairing').hidden=false;}
  }
  function fail(e){
-  if(role==='child'&&(e.code?.includes('permission-denied')||e.message?.includes('Доступ к профилю отключён'))){revokeProfile('Доступ к профилю отключён. Обратитесь к родителю.');return;}
+  if(role==='child'&&(e.code?.includes('permission-denied')||e.message?.includes('Доступ к профилю отключён'))){revokeProfile('Доступ к профилю отключён. Обратитесь к родителю.',{purge:true});return;}
   status(friendly(e));
  }
  function repaint(){active?.repaint?.();}
@@ -120,9 +133,11 @@ async function startCloud(){
   if(role==='parent')renderChildren();
   if(profileStop)profileStop();if(devicesStop)devicesStop();
   profileStop=F.onSnapshot(childRef(family,id),snap=>{
-   if(!snap.exists()){revokeProfile('Профиль недоступен. Обратитесь к родителю.');return;}
+   if(!snap.exists()){revokeProfile('Профиль удалён или недоступен. Обратитесь к родителю.',{purge:true});return;}
    const data=snap.data();
-   if(!model.isActive(data)||(role==='child'&&model.accessVersion(data)!==bindingVersion)||(active&&model.accessVersion(data)!==profileVersion)){revokeProfile(role==='parent'?'Участник перенесён в архив. Выберите другой профиль.':'Доступ к профилю отключён. Обратитесь к родителю.');return;}
+   if(!model.isActive(data)||(role==='child'&&model.accessVersion(data)!==bindingVersion)||(active&&model.accessVersion(data)!==profileVersion)){
+    revokeProfile(role==='parent'?(data.deleting?'Удаление началось. Доступ к профилю закрыт.':'Профиль недоступен. Выберите другого ребёнка.'):'Доступ к профилю отключён. Обратитесь к родителю.',{purge:Boolean(data.deleting)||role==='child',reload:!(data.deleting&&deletionInProgress===id)});return;
+   }
    window.SlovariumUI?.profile(data.name);
    $('account-title').textContent=role==='parent'?'Кабинет родителя':`Привет, ${data.name}!`;
    $('profile-name').textContent=data.name;
@@ -188,52 +203,94 @@ async function startCloud(){
   const store={getItem:()=>JSON.stringify(value),setItem(){}};return new core.CourseProgress(store).data();
  }
  function participantButton(text,action){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=text;b.onclick=action;return b;}
+ function askDelete(child){
+  closeEditors();deleteId=child.id;
+  $('participant-confirm-title').textContent='Удалить ребёнка навсегда?';
+  $('participant-confirm-text').textContent=`Удалить «${child.name}» навсегда? Будут удалены профиль, прогресс, $lovari и история обменов. Устройства потеряют доступ. Восстановить данные через кабинет нельзя.`;
+  $('participant-confirmation').hidden=false;$('participant-cancel').focus();
+ }
  function renderChildren(){
-  $('family-children').replaceChildren();$('archived-children').replaceChildren();
-  const archiveEnabled=window.SlovariumArchiveEnabled===true;
-  $('archive-availability').hidden=archiveEnabled;
-  const archived=children.filter(c=>!model.isActive(c));
+  $('family-children').replaceChildren();$('archived-children').replaceChildren();$('deleting-children').replaceChildren();
+  const archived=children.filter(c=>c.archived===true&&!c.deleting),deleting=children.filter(c=>c.deleting===true);
   $('participants-empty').hidden=children.some(model.isActive);
-  $('archive-count').textContent=`(${archived.length})`;$('archive-empty').hidden=archived.length>0;
+  $('archive-count').textContent=`(${archived.length})`;$('participants-archive').hidden=archived.length===0;
+  $('deletions-panel').hidden=deleting.length===0;
   for(const child of children){
-   const isArchived=!model.isActive(child),row=document.createElement('article');row.className='family-child'+(isArchived?' archived':'');
+   const row=document.createElement('article');row.className='family-child';
    const h=document.createElement('h3');h.textContent=child.name;row.append(h);
-   for(const text of [`Выучено слов: ${child.wallet.words.length}`,`Освоено предложений: ${child.wallet.sentences.length}`,`Баланс: ${model.balance(child.wallet)} $lovari`,`Всего заработано: ${model.earned(child.wallet)} $lovari`]){const p=document.createElement('p');p.textContent=text;row.append(p);}
    const actions=document.createElement('div');actions.className='builder-actions';
-   if(isArchived){
-    const restore=participantButton('Вернуть в участники',()=>guarded(()=>changeArchive(child.id,false)));restore.disabled=!archiveEnabled;actions.append(restore);
-    const note=document.createElement('p');note.className='participant-state';note.textContent='После восстановления подключите устройства заново.';row.append(note);
+   if(child.deleting){
+    const note=document.createElement('p');note.textContent=deletionInProgress===child.id?'Удаляем данные…':'Удаление не завершено. Продолжите очистку.';row.append(note);
+    const resume=participantButton('Продолжить удаление',()=>deleteParticipant(child.id));resume.disabled=participantBusy;actions.append(resume);
    }else{
-    actions.append(participantButton(child.id===selected?'Открыт этот профиль':'Открыть профиль',()=>choose(child.id)));
-    actions.append(participantButton('Изменить имя',()=>{closeEditors();editingId=child.id;$('participant-name').value=child.name;$('participant-editor').hidden=false;$('participant-name').focus();}));
-    const remove=participantButton('Убрать из участников',()=>{closeEditors();archiveId=child.id;$('participant-confirm-text').textContent=`Убрать «${child.name}» из участников? Его устройства потеряют доступ. Прогресс и $lovari останутся в архиве.`;$('participant-confirmation').hidden=false;$('participant-cancel').focus();});remove.className+=' danger-link';remove.disabled=!archiveEnabled;actions.append(remove);
+    for(const text of [`Выучено слов: ${child.wallet.words.length}`,`Освоено предложений: ${child.wallet.sentences.length}`,`Баланс: ${model.balance(child.wallet)} $lovari`,`Всего заработано: ${model.earned(child.wallet)} $lovari`]){const p=document.createElement('p');p.textContent=text;row.append(p);}
+    if(model.isActive(child)){
+     actions.append(participantButton(child.id===selected?'Открыт этот профиль':'Открыть профиль',()=>choose(child.id)));
+     actions.append(participantButton('Изменить имя',()=>{closeEditors();editingId=child.id;$('participant-name').value=child.name;$('participant-editor').hidden=false;$('participant-name').focus();}));
+    }
+    const remove=participantButton('Удалить ребёнка',()=>askDelete(child));remove.className+=' danger-link';actions.append(remove);
    }
-   row.append(actions);$(isArchived?'archived-children':'family-children').append(row);
+   for(const button of actions.children)button.disabled=participantBusy;
+   row.append(actions);$(child.deleting?'deleting-children':model.isActive(child)?'family-children':'archived-children').append(row);
   }
  }
- async function changeArchive(id,archived){
+ async function deleteParticipant(id){
   if(participantBusy)return;
-  if(window.SlovariumArchiveEnabled!==true)throw Error('Удаление в архив пока недоступно.');
-  if(role!=='parent'||!navigator.onLine)throw Error('Для изменения участников нужны родитель и подключение к интернету');
-  participantBusy=true;$('participant-confirm').disabled=true;
+  if(role!=='parent'||!navigator.onLine){status('Для удаления нужны родитель и подключение к интернету');return;}
+  const ownerFamily=family,ref=childRef(ownerFamily,id);
+  participantBusy=true;deletionInProgress=id;$('participant-confirm').disabled=true;$('participant-cancel').disabled=true;
+  renderChildren();status('Удаляем профиль и связанные данные…');
   try{
+   // Lock first: no new results, rewards, imports, exchanges or bindings can arrive after this transaction.
    await F.runTransaction(db,async tx=>{
-    const ref=childRef(family,id),snap=await tx.get(ref);if(!snap.exists())throw Error('Участник не найден');
-    const data=snap.data(),next=model.archiveParticipant(data,archived);
-    if(next!==data)tx.update(ref,{archived:next.archived,accessVersion:next.accessVersion});
+    const snap=await tx.get(ref);if(!snap.exists())return;
+    const data=snap.data(),next=model.beginDeletion(data);
+    if(next!==data)tx.update(ref,{deleting:true,archived:true,accessVersion:next.accessVersion});
    });
-   closeEditors();status(archived?'Участник перенесён в архив.':'Участник восстановлен. Подключите устройства заново.');
-  }finally{participantBusy=false;$('participant-confirm').disabled=false;}
+   const cacheClean=purgeProfileCache(id);
+   // Only these two child subcollections are written by this application.
+   for(const name of ['results','exchanges']){
+    while(true){
+     const snap=await F.getDocsFromServer(F.query(F.collection(db,'families',ownerFamily,'children',id,name),F.limit(100)));
+     if(!snap.docs.length)break;
+     const batch=F.writeBatch(db);for(const item of snap.docs)batch.delete(item.ref);await batch.commit();
+    }
+   }
+   // A device may have been rebound elsewhere by another parent session: re-read each before clearing it.
+   while(true){
+    const devices=await F.getDocsFromServer(F.query(F.collection(db,'devices'),F.where('family','==',ownerFamily),F.where('child','==',id),F.limit(100)));
+    if(!devices.docs.length)break;
+    for(const item of devices.docs)await F.runTransaction(db,async tx=>{
+     const snap=await tx.get(item.ref);
+     if(snap.exists()&&snap.data().family===ownerFamily&&snap.data().child===id)tx.set(item.ref,{family:'',child:''});
+    });
+   }
+   // Keep only the family-level fingerprint that prevents importing the same backup twice.
+   while(true){
+    const imports=await F.getDocsFromServer(F.query(F.collection(db,'families',ownerFamily,'imports'),F.where('child','==',id),F.limit(100)));
+    if(!imports.docs.length)break;
+    for(const item of imports.docs)await F.runTransaction(db,async tx=>{
+     const snap=await tx.get(item.ref);if(snap.exists()&&snap.data().child===id)tx.set(item.ref,{used:true});
+    });
+   }
+   // Final deletion happens only after server queries confirmed all known dependent data was cleared.
+   await F.runTransaction(db,async tx=>{const snap=await tx.get(ref);if(!snap.exists())return;if(!snap.data().deleting)throw Error('Состояние профиля изменилось');tx.delete(ref);});
+   closeEditors();status('Ребёнок и его данные удалены.'+(cacheClean?'':' Локальную очередь очистить не удалось: проверьте доступ к хранилищу браузера.'));
+  }catch(e){
+   status('Удаление не завершено. Продолжите удаление после восстановления связи. '+friendly(e));
+  }finally{
+   participantBusy=false;deletionInProgress=null;$('participant-confirm').disabled=false;$('participant-cancel').disabled=false;renderChildren();
+  }
  }
  $('participant-edit-cancel').onclick=closeEditors;$('participant-cancel').onclick=closeEditors;
- $('participant-confirm').onclick=()=>{const id=archiveId;if(!id)return;return guarded(()=>changeArchive(id,true));};
+ $('participant-confirm').onclick=()=>{const id=deleteId;if(!id)return;return deleteParticipant(id);};
  $('participant-rename-form').onsubmit=event=>{
   event.preventDefault();const id=editingId;if(!id||participantBusy)return;
   return guarded(async()=>{
    if(role!=='parent'||!navigator.onLine)throw Error('Для изменения имени нужны родитель и подключение к интернету');
    const name=model.participantName($('participant-name').value);participantBusy=true;$('participant-save').disabled=true;
    try{await F.runTransaction(db,async tx=>{const ref=childRef(family,id),snap=await tx.get(ref);if(!snap.exists())throw Error('Участник не найден');model.requireActive(snap.data());tx.update(ref,{name});});closeEditors();status('Имя сохранено.');}
-   finally{participantBusy=false;$('participant-save').disabled=false;}
+   finally{participantBusy=false;$('participant-save').disabled=false;renderChildren();}
   });
  };
  async function guarded(fn){try{await fn();}catch(e){fail(e);}}
@@ -261,8 +318,7 @@ async function startCloud(){
   await F.runTransaction(db,async tx=>{const ref=deviceRef(uid),snap=await tx.get(ref),profile=await tx.get(childRef(family,selected));if(!profile.exists())throw Error('Профиль не найден');model.requireActive(profile.data());if(!snap.exists())throw Error('Код не найден. На устройстве ребёнка нажмите «Я ребёнок».');
    if(snap.data().family&&snap.data().family!==family)throw Error('Устройство уже подключено к другой семье');
    const version=model.accessVersion(profile.data());
-   if(version>0&&window.SlovariumArchiveEnabled!==true)throw Error('Подключение восстановленного профиля пока недоступно.');
-   tx.update(ref,{family,child:selected,...(window.SlovariumArchiveEnabled===true?{accessVersion:version}:{})});
+   tx.update(ref,{family,child:selected,accessVersion:version});
   });$('device-input').value='';status('Устройство подключено к выбранному ребёнку.');
  });};
  $('import-file').onchange=()=>guarded(async()=>{
@@ -320,7 +376,7 @@ async function startCloud(){
      const d=snap.data();if(d?.family&&d?.child){
       if(mounted&&(family!==d.family||selected!==d.child)){location.reload();return;}
       family=d.family;choose(d.child,model.accessVersion(d));
-     }else if(mounted){location.reload();}else{$('child-pairing').hidden=false;status('Покажите код родителю');}
+     }else if(mounted){if(selected)purgeProfileCache(selected);purgeDetachedQueues();location.reload();}else{purgeDetachedQueues();$('child-pairing').hidden=false;status('Покажите код родителю');}
     },fail));
    }
   });

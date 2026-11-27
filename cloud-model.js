@@ -21,7 +21,7 @@ function mergeResults(old,next){
  return {...result,signature:next.signature};
 }
 const accessVersion=profile=>profile.accessVersion??0;
-const isActive=profile=>Boolean(profile)&&profile.archived!==true;
+const isActive=profile=>Boolean(profile)&&profile.archived!==true&&profile.deleting!==true;
 function requireActive(profile,expectedVersion=accessVersion(profile||{})){
  if(!isActive(profile)||accessVersion(profile)!==expectedVersion)throw Error('Доступ к профилю отключён. Обратитесь к родителю.');
  return profile;
@@ -32,11 +32,18 @@ function participantName(value){
  return name;
 }
 function archiveParticipant(profile,archived){
+ if(profile.deleting===true)throw Error('Удаление профиля уже началось');
  if(typeof archived!=='boolean')throw Error('Неверное состояние участника');
  if((profile.archived===true)===archived)return profile;
  return {...profile,archived,accessVersion:accessVersion(profile)+(archived?1:0)};
 }
-const api={emptyWallet,earned,balance,addReward,exchange,better,mergeResults,accessVersion,isActive,requireActive,participantName,archiveParticipant};
+function beginDeletion(profile){
+ return profile.deleting===true?profile:{...profile,deleting:true,archived:true,accessVersion:accessVersion(profile)+1};
+}
+function profileQueueKey(key,family,child){
+ return key.startsWith('slovarium.pending:')&&key.replace(/:v\d+$/,'').endsWith(`:${family}:${child}`);
+}
+const api={emptyWallet,earned,balance,addReward,exchange,better,mergeResults,accessVersion,isActive,requireActive,participantName,archiveParticipant,beginDeletion,profileQueueKey};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 else root.SlovariumCloudModel=api;
 })(typeof window==='undefined'?globalThis:window);

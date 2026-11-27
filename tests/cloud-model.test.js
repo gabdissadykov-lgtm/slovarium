@@ -48,3 +48,11 @@ test('participants: legacy compatibility, archive generation and idempotent rest
  assert.equal(model.archiveParticipant(restored,true).accessVersion,2);
  assert.equal(model.balance(restored.wallet),10);
 });
+
+test('permanent deletion: idempotent lock revokes active and archived profiles; exact queue keys protect other children',()=>{
+ for(const profile of [{name:'Әлия',wallet:model.emptyWallet()},{name:'Әлия',wallet:model.emptyWallet(),archived:true,accessVersion:4}]){
+  const locked=model.beginDeletion(profile);assert.equal(locked.deleting,true);assert.equal(locked.archived,true);assert.equal(locked.accessVersion,model.accessVersion(profile)+1);assert.equal(model.beginDeletion(locked),locked);assert.equal(model.isActive(locked),false);assert.throws(()=>model.requireActive(locked));assert.throws(()=>model.archiveParticipant(locked,false));
+ }
+ for(const key of ['slovarium.pending:u:f:c','slovarium.pending:u:f:c:v12'])assert.equal(model.profileQueueKey(key,'f','c'),true);
+ for(const key of ['other:u:f:c','slovarium.pending:u:ff:c','slovarium.pending:u:f:cc','slovarium.pending:u:f:c:vx'])assert.equal(model.profileQueueKey(key,'f','c'),false);
+});

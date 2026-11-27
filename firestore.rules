@@ -5,7 +5,11 @@ service cloud.firestore {
   function google() {return signed() && request.auth.token.firebase.sign_in_provider == 'google.com';}
   function parent(family) {return google() && request.auth.uid == family;}
   // Missing metadata means an existing active profile and its original device generation.
-  function activeData(d) {return d.get('archived',false) == false;}
+  function activeData(d) {return d.get('archived',false) == false && d.get('deleting',false) == false;}
+  function deletingProfile(family,child) {
+   return exists(/databases/$(database)/documents/families/$(family)/children/$(child)) &&
+    get(/databases/$(database)/documents/families/$(family)/children/$(child)).data.get('deleting',false) == true;
+  }
   function generation(d) {return d.get('accessVersion',0);}
   function activeProfile(family,child) {
    return exists(/databases/$(database)/documents/families/$(family)/children/$(child)) &&
@@ -22,13 +26,16 @@ service cloud.firestore {
      generation(get(/databases/$(database)/documents/families/$(family)/children/$(child)).data);
   }
   function validMetadata(d) {
-   return d.name is string && d.name.size()>0 && d.name.size()<=40 && d.get('archived',false) is bool &&
+   return d.name is string && d.name.size()>0 && d.name.size()<=40 && d.get('archived',false) is bool && d.get('deleting',false) is bool &&
     generation(d) is int && generation(d)>=0 && generation(d)<2147483647;
   }
   function parentUpdate(old,next) {
-   return validMetadata(next) &&
-    generation(next) == generation(old) + ((activeData(old) && !activeData(next)) ? 1 : 0) &&
-    ((activeData(old) && activeData(next)) || next.diff(old).affectedKeys().hasOnly(['name','archived','accessVersion']));
+   return validMetadata(next) && !old.get('deleting',false) &&
+    ((next.get('deleting',false) == true && next.get('archived',false) == true &&
+      generation(next) == generation(old)+1 && next.diff(old).affectedKeys().hasOnly(['deleting','archived','accessVersion'])) ||
+     (next.get('deleting',false) == false &&
+      generation(next) == generation(old) + ((activeData(old) && !activeData(next)) ? 1 : 0) &&
+      ((activeData(old) && activeData(next)) || next.diff(old).affectedKeys().hasOnly(['name','archived','accessVersion']))));
   }
   function known(id) {
    return id.matches('m1-r(00[1-9]|0[1-8][0-9]|090)|m2-r(09[1-9]|1[0-7][0-9]|18[0-7])|m3-r(18[8-9]|19[0-9]|2[0-7][0-9]|28[0-2])|m4-r(28[3-9]|29[0-9]|3[0-8][0-9])|m5-r(39[0-9]|4[0-7][0-9]|48[0-7])|m6-r(48[8-9]|49[0-9]|5[0-8][0-9])|m7-r(59[0-9]|6[0-7][0-9]|68[0-8])|m8-r(689|69[0-9]|7[0-6][0-9]|77[0-1])|m9-r(77[2-9]|7[8-9][0-9]|8[0-1][0-9]|82[0-9])');
@@ -62,11 +69,12 @@ service cloud.firestore {
    allow update: if (parent(family) && parentUpdate(resource.data,request.resource.data)) || (ownChild(family,child) && activeAfter(family,child) &&
     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wallet','activity']) && request.resource.data.activity == true &&
     childWallet(resource.data.wallet,request.resource.data.wallet));
-   allow delete: if false;
+   allow delete: if parent(family) && resource.data.get('deleting',false) == true;
    match /exchanges/{index} {
     allow read: if parent(family) || ownChild(family,child);
     allow create: if parent(family) && activeProfile(family,child) && activeAfter(family,child);
-    allow update,delete: if false;
+    allow update: if false;
+    allow delete: if parent(family) && deletingProfile(family,child);
    }
    match /results/{lesson} {
     function score(s,total) {
@@ -91,12 +99,17 @@ service cloud.firestore {
     allow update: if (parent(family) || ownChild(family,child)) && activeProfile(family,child) && activeAfter(family,child) && validResult() &&
      (!('cards' in resource.data) || resource.data.cards==null || (request.resource.data.cards!=null && improved(resource.data.cards,request.resource.data.cards))) &&
      (!('sentences' in resource.data) || resource.data.sentences==null || (request.resource.data.sentences!=null && improved(resource.data.sentences,request.resource.data.sentences)));
-    allow delete: if false;
+    allow delete: if parent(family) && deletingProfile(family,child);
    }
   }
   match /families/{family}/imports/{hash} {
-   allow read,create: if parent(family);
-   allow update,delete: if false;
+   allow read: if parent(family);
+   allow create: if parent(family) && request.resource.data.keys().hasOnly(['child','createdAt']) &&
+    request.resource.data.child is string && activeProfile(family,request.resource.data.child) && activeAfter(family,request.resource.data.child);
+   // Retain only the opaque fingerprint, without a child identifier or other personal fields.
+   allow update: if parent(family) && resource.data.get('child','') is string &&
+    deletingProfile(family,resource.data.get('child','')) && request.resource.data == {'used':true};
+   allow delete: if false;
   }
  }
 }

@@ -2,7 +2,7 @@
 // Run only against a local demo emulator loaded with this repository's rules.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const host=process.env.FIRESTORE_EMULATOR_HOST;
-test('Firestore Rules: family isolation, archived reads/writes, generation revocation and atomic batches',{skip:!host},async()=>{
+test('Firestore Rules: family isolation, archived reads/writes, generation revocation, permanent deletion and atomic batches',{skip:!host},async()=>{
  assert.match(host,/^(127\.0\.0\.1|localhost):\d+$/,'Only an isolated local emulator is allowed');
  const project='demo-slovarium-rules',base=`http://${host}/v1/projects/${project}/databases/(default)/documents`;
  const parent='rules-parent',other='rules-other',child='rules-child',device='rules-anonymous-device';
@@ -58,4 +58,44 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  // Archived profile state and balances cannot be destroyed by DELETE.
  denied(await request('/'+profile,'DELETE',null,owner));
  ok(await write(profile,{name:'Әлия Новый'},owner,true));ok(await read(profile,kid));
+ // Permanent deletion: only a locked profile permits cleanup, and a lock cannot be undone.
+ const fingerprint=`families/${parent}/imports/opaque-fingerprint`;
+ ok(await write(fingerprint,{child,createdAt:'test'},owner));
+ denied(await write(fingerprint,{used:true},owner));
+ denied(await request('/'+profile+'/results/m1-l1','DELETE',null,owner));
+ denied(await write(profile,{deleting:true,archived:true,accessVersion:2},kid,true));
+ denied(await write(profile,{deleting:true,archived:true,accessVersion:1},owner,true));
+ const invalidLock=await request(':commit','POST',{writes:[
+  {update:{name:`projects/${project}/databases/(default)/documents/${profile}`,fields:fields({deleting:true,archived:true,accessVersion:2})},updateMask:{fieldPaths:['deleting','archived','accessVersion']}},
+  {update:{name:`projects/${project}/databases/(default)/documents/${profile}/results/m1-l2`,fields:fields(score)}}
+ ]},owner);denied(invalidLock);
+ ok(await write(profile,{deleting:true,archived:true,accessVersion:2},owner,true));
+ denied(await read(profile,kid));denied(await read(profile+'/results',kid));
+ denied(await write(profile,{deleting:false,archived:false,accessVersion:2},owner,true));
+ denied(await write(profile,{name:'Restored'},owner,true));
+ denied(await write(profile,{wallet},owner,true));
+ denied(await write(profile+'/results/m1-l2',score,owner));
+ denied(await write(profile+'/exchanges/1',{amount:1},owner));
+ denied(await write(`families/${parent}/imports/late-import`,{child,createdAt:'late'},owner));
+ denied(await write(devicePath,{family:parent,child,accessVersion:2},owner,true));
+ denied(await request('/'+profile+'/results/m1-l1','DELETE',null,kid));
+ denied(await request('/'+profile+'/results/m1-l1','DELETE',null,stranger));
+ denied(await write(fingerprint,{used:true,child},owner));
+ ok(await write(fingerprint,{used:true},owner));
+ assert.deepEqual(JSON.parse((await read(fingerprint,owner)).text).fields,{used:{booleanValue:true}});
+ ok(await request(':commit','POST',{writes:[
+  {delete:`projects/${project}/databases/(default)/documents/${profile}/results/m1-l1`},
+  {delete:`projects/${project}/databases/(default)/documents/${profile}/exchanges/0`}
+ ]},owner));
+ ok(await write(devicePath,{family:'',child:''},owner));
+ denied(await request('/'+profile,'DELETE',null,stranger));
+ ok(await request('/'+profile,'DELETE',null,owner));
+ assert.equal((await read(profile,owner)).status,404);
+ assert.equal(JSON.parse((await read(profile+'/results',owner)).text).documents,undefined);
+ assert.equal(JSON.parse((await read(profile+'/exchanges',owner)).text).documents,undefined);
+ denied(await write(profile,{wallet:rewarded,activity:true},kid,true));
+ denied(await write(profile+'/results/m1-l1',score,kid));
+ ok(await write(`families/${parent}/children/new-child`,{name:'Әлия Новый',wallet,activity:false},owner));
+ denied(await read(`families/${parent}/children/new-child`,kid));
+
 });
