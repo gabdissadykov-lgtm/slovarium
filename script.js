@@ -5137,7 +5137,7 @@ function mount(online=null) {
   if(screen==='lesson' && progress.selection.lesson) start(progress.selection.lesson);else render();
 }
 if(typeof module!=='undefined' && module.exports) module.exports={SlovariWallet,walletStorageKey,topicDesigns,topicIllustration,validSelection,courseContentIssues,validAssemblyScore,sentenceWords,wordKey,sentenceSignature,assemblySentenceParts,assemblyTasks,assemblyBank,courseEntries,courseLessons,courseModules,CourseProgress,courseStorageKey,entriesFor,tasksFor,courseSentenceParts,sentenceParts,createSentenceHelp,legacySentenceBank:sentenceBank,sentenceBank:assemblyBank,SentenceGame,vocabulary,categories,languages,WordGame,shuffle,loadCategory,saveCategory,storageKey};
-if(typeof window!=='undefined')window.SlovariumCore={mount,CourseProgress,SlovariWallet,courseStorageKey,walletStorageKey,courseLessons,courseEntries,assemblyTasks,validScore,validAssemblyScore,sentenceSignature};
+if(typeof window!=='undefined')window.SlovariumCore={courseModules,mount,CourseProgress,SlovariWallet,courseStorageKey,walletStorageKey,courseLessons,courseEntries,assemblyTasks,validScore,validAssemblyScore,sentenceSignature};
 if(typeof document!=='undefined') {
   if(document.querySelectorAll) {window.SlovariumUI=initializeInterface();window.SlovariumUI.setReady(false);}
   if(!window.SlovariumOnline)mount();

@@ -1,5 +1,5 @@
 [build]
-  command = "mkdir -p dist && cp index.html styles.css script.js firebase-config.js cloud-model.js cloud.js _headers dist/"
+  command = "mkdir -p dist && cp index.html styles.css script.js firebase-config.js cloud-model.js oral-check.js cloud.js _headers dist/"
   publish = "dist"
 
 [[headers]]

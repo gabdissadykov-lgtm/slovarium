@@ -26,6 +26,19 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  ok(await read(profile,kid));denied(await read(profile,stranger));denied(await read(profile));
  denied(await write(profile,{name:'Hacked'},kid,true));denied(await write(profile,{archived:true,accessVersion:1},kid,true));
  denied(await write(profile,{name:'Hacked'},stranger,true));
+ // Oral checks: private plans, minimal current prompt, readiness-only child writes.
+ const oralPrivate=profile+'/checks/session',oralLive=profile+'/checkLive/current';
+ const invitation={session:'session',status:'waiting',step:0,total:10,ready:false,prompt:'house',from:'en',to:'kk',word:1};
+ ok(await write(oralPrivate,{tasks:[{answer:'үй'}],grades:[]},owner));
+ ok(await write(oralLive,invitation,owner));
+ ok(await read(oralLive,kid));denied(await read(oralPrivate,kid));denied(await read(profile+'/checks',kid));
+ denied(await read(oralLive,stranger));denied(await read(oralPrivate,stranger));denied(await read(oralLive));
+ denied(await write(oralPrivate,{grades:[0]},kid,true));denied(await write(oralLive,{step:1},kid,true));
+ denied(await write(oralLive,{ready:true,prompt:'cheat'},kid,true));
+ ok(await write(oralLive,{ready:true},kid,true));
+ denied(await write(oralLive,{ready:false},kid,true));
+ ok(await write(oralLive,{status:'active'},owner,true));denied(await write(oralLive,{ready:true},kid,true));
+ denied(await write(oralLive,{step:2},stranger,true));
  const rewarded={...wallet,words:['m1-r001']};
  ok(await write(profile,{wallet:rewarded,activity:true},kid,true));
  const score={signature:'rules-test',cards:{total:20,firstTryCorrect:20,errors:0}};
@@ -35,6 +48,7 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  denied(await write(profile,{archived:true},owner,true)); // Archive must revoke generation atomically.
  ok(await write(profile,{archived:true,accessVersion:1},owner,true));
  ok(await read(profile,owner));ok(await read(profile+'/results/m1-l1',owner));
+ denied(await read(oralLive,kid));denied(await write(oralLive,{step:1},owner,true));
  denied(await read(profile,kid));denied(await read(profile+'/results/m1-l1',kid));denied(await read(profile+'/exchanges/0',kid));
  denied(await write(profile,{wallet:{...rewarded,words:['m1-r001','m1-r002']},activity:true},kid,true));
  denied(await write(profile+'/results/m1-l2',score,kid));denied(await write(profile+'/results/m1-l2',score,owner));
@@ -59,6 +73,7 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  denied(await request('/'+profile,'DELETE',null,owner));
  ok(await write(profile,{name:'Әлия Новый'},owner,true));ok(await read(profile,kid));
  // Permanent deletion: only a locked profile permits cleanup, and a lock cannot be undone.
+ denied(await request('/'+oralPrivate,'DELETE',null,owner));
  const fingerprint=`families/${parent}/imports/opaque-fingerprint`;
  ok(await write(fingerprint,{child,createdAt:'test'},owner));
  denied(await write(fingerprint,{used:true},owner));
@@ -70,6 +85,8 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
   {update:{name:`projects/${project}/databases/(default)/documents/${profile}/results/m1-l2`,fields:fields(score)}}
  ]},owner);denied(invalidLock);
  ok(await write(profile,{deleting:true,archived:true,accessVersion:2},owner,true));
+ denied(await read(oralLive,kid));denied(await write(oralPrivate,{grades:[1]},owner,true));
+ ok(await request('/'+oralPrivate,'DELETE',null,owner));ok(await request('/'+oralLive,'DELETE',null,owner));
  denied(await read(profile,kid));denied(await read(profile+'/results',kid));
  denied(await write(profile,{deleting:false,archived:false,accessVersion:2},owner,true));
  denied(await write(profile,{name:'Restored'},owner,true));

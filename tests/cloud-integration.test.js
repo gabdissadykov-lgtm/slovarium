@@ -11,14 +11,15 @@ async function settle(){for(let i=0;i<12;i++)await tick();}
 function storage(){const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k),get length(){return map.size;},key:i=>[...map.keys()][i]??null,map};}
 function backend(){
  const docs=new Map(),listeners=[],controls={batch:0,failBatchAt:0,onQuery:null};let serial=Promise.resolve();
- const snap=ref=>({id:ref.path.split('/').at(-1),ref,exists:()=>docs.has(ref.path),data:()=>structuredClone(docs.get(ref.path))});
+ const snap=ref=>({id:ref.path.split('/').at(-1),ref,exists:()=>docs.has(ref.path),metadata:{fromCache:false,hasPendingWrites:false},data:()=>structuredClone(docs.get(ref.path))});
  const get=(ref)=>ref.type==='collection'?{docs:[...docs.keys()].filter(k=>k.startsWith(ref.path+'/')&&k.split('/').length===ref.path.split('/').length+1).map(path=>snap({path})).filter(d=>!ref.filters||ref.filters.every(f=>d.data()[f.field]===f.value)).slice(0,ref.max??Infinity)}:snap(ref);
  const notify=()=>listeners.slice().forEach(l=>queueMicrotask(()=>{if(listeners.includes(l))l.fn(get(l.ref));}));
- const api={getFirestore:()=>({}),doc:(_, ...path)=>({type:'doc',path:path.join('/')}),collection:(_, ...path)=>({type:'collection',path:path.join('/')}),where:(field,op,value)=>({field,value}),limit:max=>({max}),query:(ref,...filters)=>({...ref,filters:filters.filter(f=>f.field),max:filters.find(f=>f.max)?.max}),
+ const api={getFirestore:()=>({}),doc:(_, ...path)=>{const p=_.path?_.path+'/'+(path[0]||'session-'+docs.size):path.join('/');return {type:'doc',path:p,id:p.split('/').at(-1)};},collection:(_, ...path)=>({type:'collection',path:path.join('/')}),where:(field,op,value)=>({field,value}),limit:max=>({max}),query:(ref,...filters)=>({...ref,filters:filters.filter(f=>f.field),max:filters.find(f=>f.max)?.max}),
+  async getDocFromServer(ref){return get(ref);},
   async getDocsFromServer(ref){const result=get(ref);controls.onQuery?.(ref,result);return result;},
   writeBatch(){const refs=[];return {delete:ref=>refs.push(ref),async commit(){controls.batch++;if(controls.batch===controls.failBatchAt)throw Object.assign(Error('Сбой сети'),{code:'unavailable'});for(const ref of refs)docs.delete(ref.path);notify();}};},
   serverTimestamp:()=>({server:true}),Timestamp:{fromDate:d=>d.toISOString()},
-  onSnapshot(ref,fn){const l={ref,fn};listeners.push(l);queueMicrotask(()=>fn(get(ref)));return ()=>listeners.splice(listeners.indexOf(l),1);},
+  onSnapshot(ref,options,callback){const fn=typeof options==='function'?options:callback;const l={ref,fn};listeners.push(l);queueMicrotask(()=>fn(get(ref)));return ()=>listeners.splice(listeners.indexOf(l),1);},
   runTransaction(db,fn){const task=serial.then(async()=>{const writes=[];const tx={get:async ref=>snap(ref),set:(ref,value)=>writes.push([ref,value]),update:(ref,value)=>writes.push([ref,{...docs.get(ref.path),...value}]),delete:ref=>writes.push([ref,null])};await fn(tx);for(const [ref,value]of writes){if(value===null)docs.delete(ref.path);else docs.set(ref.path,structuredClone(value));}notify();});serial=task.catch(()=>{});return task;},
   async addDoc(ref,value){const id='kid'+(docs.size+1),path=ref.path+'/'+id;docs.set(path,structuredClone(value));notify();return {id,path};},
   async updateDoc(ref,value){docs.set(ref.path,{...docs.get(ref.path),...value});notify();}
@@ -35,7 +36,8 @@ async function session(back,user,options={}){
   location:{protocol:'https:',reload(){context.reloads++;}},reloads:0,
   document:{getElementById:id=>elements[id],querySelector:()=>walletElement,createElement:()=>new Element()},
   __app:{initializeApp:()=>({})},__auth:A,__firestore:back.api};
- context.window={SlovariumOnline:true,SlovariumFirebaseConfig:{},SlovariumCloudModel:model,SlovariumCore:{...core,mount:x=>{mounted=x;x.repaint=()=>{};}},addEventListener:(k,fn)=>events[k]=fn,confirm:()=>true};
+ context.window={SlovariumOnline:true,SlovariumFirebaseConfig:{},SlovariumCloudModel:model,SlovariumCore:{...core,mount:x=>{mounted=x;x.repaint=()=>{};}},addEventListener:(k,fn)=>{const prior=events[k];events[k]=()=>{prior?.();fn();};},removeEventListener:()=>{},confirm:()=>true};
+ vm.runInNewContext(fs.readFileSync('oral-check.js','utf8'),context);
  let source=fs.readFileSync('cloud.js','utf8');
  for(const [name,key]of [['app','__app'],['auth','__auth'],['firestore','__firestore']])source=source.replace(`import('https://www.gstatic.com/firebasejs/13.4.0/firebase-${name}.js')`,`Promise.resolve(${key})`);
  vm.runInNewContext(source,context);await settle();
@@ -155,4 +157,29 @@ test('deletion: child cannot start cleanup even if a parent confirmation is forc
  const back=backend(),family='parent-uid',child='child-1',uid='anonymous-uid-123456789012345',path=`families/${family}/children/${child}`;
  back.docs.set(path,{name:'Алия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
  const kid=await session(back,{uid,isAnonymous:true});await kid.elements['participant-confirm'].click();assert.ok(back.docs.has(path));assert.equal(back.docs.get(path).deleting,undefined);
+});
+
+test('oral: two independent sessions, invitation, readiness, duplicate grade, F5, offline, history and profile cleanup',async()=>{
+ const back=backend(),family='oral-parent',child='oral-child',uid='oral-anonymous-device-123456';
+ back.docs.set(`families/${family}/children/${child}`,{name:'Әлия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
+ const parent=await session(back,{uid:family,isAnonymous:false},{session:(()=>{const s=storage();s.setItem('slovarium.selectedChild',child);return s;})()}),kid=await session(back,{uid,isAnonymous:true});
+ const e=parent.elements;e['check-topic'].value='1';e['check-count'].value='5';e['check-language'].value='en';
+ e['check-form'].onsubmit({preventDefault(){}});await settle();
+ const live=`families/${family}/children/${child}/checkLive/current`,state=()=>back.docs.get(live);
+ assert.equal(state().status,'waiting');assert.equal(state().total,10);assert.equal(state().answer,undefined);
+ const click=async(s,label)=>{const b=s.elements['check-current'].children.find(e=>e.textContent===label);assert.ok(b,label);await b.click();await settle();};
+ await click(kid,'Начать');assert.equal(state().ready,true);await click(parent,'Начать проверку');assert.equal(state().status,'active');
+ const grade=e['check-current'].children.find(e=>e.textContent==='Верно');grade.click();grade.click();await settle();assert.equal(state().step,1);
+ const secondParent=await session(back,{uid:family,isAnonymous:false},{session:parent.sessionStore});
+ const b1=e['check-current'].children.find(e=>e.textContent==='Верно'),b2=secondParent.elements['check-current'].children.find(e=>e.textContent==='Верно');
+ await Promise.all([b1.click(),b2.click()]);await settle();assert.equal(state().step,2);
+ const fresh=await session(back,{uid,isAnonymous:true});assert.equal(fresh.elements['check-current'].children[1].textContent,state().prompt);
+ parent.context.navigator.onLine=false;parent.events.offline();await click(parent,'Верно');assert.equal(state().step,2);
+ parent.context.navigator.onLine=true;parent.events.online();await settle();
+ for(let i=2;i<10;i++)await click(parent,i===2?'С подсказкой':'Верно');
+ assert.equal(state().status,'completed');const saved=[...back.docs.entries()].find(([p])=>p.includes('/checks/'))[1];assert.equal(saved.grades.length,10);
+ assert.ok(e['check-report'].children.some(e=>e.textContent==='С подсказкой: 1'));
+ assert.deepEqual(back.docs.get(`families/${family}/children/${child}`).wallet,model.emptyWallet());
+ const row=e['family-children'].children[0];await row.children.at(-1).children.find(b=>b.textContent==='Удалить ребёнка').click();await e['participant-confirm'].click();await settle();
+ assert.ok(![...back.docs.keys()].some(p=>p.startsWith(`families/${family}/children/${child}/`)));
 });

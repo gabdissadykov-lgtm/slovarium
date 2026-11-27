@@ -70,6 +70,20 @@ service cloud.firestore {
     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wallet','activity']) && request.resource.data.activity == true &&
     childWallet(resource.data.wallet,request.resource.data.wallet));
    allow delete: if parent(family) && resource.data.get('deleting',false) == true;
+   // Oral plans and grades are parent-only; the child receives a separate current prompt.
+   match /checks/{session} {
+    allow read: if parent(family);
+    allow create, update: if parent(family) && activeProfile(family,child) && activeAfter(family,child);
+    allow delete: if parent(family) && deletingProfile(family,child);
+   }
+   match /checkLive/{slot} {
+    allow read: if parent(family) || (slot == 'current' && ownChild(family,child));
+    allow create: if slot == 'current' && parent(family) && activeProfile(family,child) && activeAfter(family,child);
+    allow update: if slot == 'current' && activeProfile(family,child) && activeAfter(family,child) &&
+     (parent(family) || (ownChild(family,child) && resource.data.status == 'waiting' && resource.data.ready == false &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ready']) && request.resource.data.ready == true));
+    allow delete: if parent(family) && deletingProfile(family,child);
+   }
    match /exchanges/{index} {
     allow read: if parent(family) || ownChild(family,child);
     allow create: if parent(family) && activeProfile(family,child) && activeAfter(family,child);

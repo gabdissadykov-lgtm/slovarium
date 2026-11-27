@@ -3,6 +3,7 @@
 const $=id=>document.getElementById(id);
 const core=window.SlovariumCore,model=window.SlovariumCloudModel;
 let active=null;
+let oralStop=null;
 function download(data){
  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
  const a=document.createElement('a');a.href=url;a.download='slovarium-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -56,6 +57,7 @@ async function startCloud(){
   try{const prefix=`slovarium.pending:${auth.currentUser.uid}:`;for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(prefix))localStorage.removeItem(key);}}catch{}
  }
  function revokeProfile(message,{reload=true,purge=false}={}){
+  oralStop?.();oralStop=null;
   if(purge&&selected)purgeProfileCache(selected);
   if(active){active.wallet.blocked=true;active.wallet.saved=false;}
   active=null;queue={rewards:[],results:{}};importData=null;
@@ -148,6 +150,7 @@ async function startCloud(){
     syncStatus();
    }
    $('child-pairing').hidden=true;$('profile-tools').hidden=role!=='parent';
+   try{if(role==='parent'&&sessionStorage.getItem('slovarium.openOral')===selected){sessionStorage.removeItem('slovarium.openOral');window.SlovariumUI?.open('settings-view');$('oral-check').scrollIntoView({behavior:'smooth'});}}catch{}
   },fail);
   if(role==='parent')devicesStop=F.onSnapshot(F.query(F.collection(db,'devices'),F.where('family','==',family),F.where('child','==',id)),snap=>{
    $('linked-devices').replaceChildren();
@@ -197,6 +200,7 @@ async function startCloud(){
    repaint();
   },fail));
   profileListeners.push(F.onSnapshot(F.collection(db,'families',family,'children',selected,'exchanges'),snap=>{historyDates={};for(const d of snap.docs){const at=d.data().at;if(at?.toDate)historyDates[d.id]=at.toDate().toISOString();}wallet.state=withHistory(wallet.state);repaint();},fail));
+  oralStop?.();oralStop=window.SlovariumOral.mount({F,db,family,child:selected,role,core,onError:fail});
   syncStatus();void flush();
  }
  function cleanCourse(value){
@@ -226,6 +230,7 @@ async function startCloud(){
     for(const text of [`Выучено слов: ${child.wallet.words.length}`,`Освоено предложений: ${child.wallet.sentences.length}`,`Баланс: ${model.balance(child.wallet)} $lovari`,`Всего заработано: ${model.earned(child.wallet)} $lovari`]){const p=document.createElement('p');p.textContent=text;row.append(p);}
     if(model.isActive(child)){
      actions.append(participantButton(child.id===selected?'Открыт этот профиль':'Открыть профиль',()=>choose(child.id)));
+     actions.append(participantButton('Проверить знания',()=>{try{sessionStorage.setItem('slovarium.openOral',child.id);}catch{}if(active&&selected===child.id){window.SlovariumUI?.open('settings-view');$('oral-check').scrollIntoView({behavior:'smooth'});}else choose(child.id);}));
      actions.append(participantButton('Изменить имя',()=>{closeEditors();editingId=child.id;$('participant-name').value=child.name;$('participant-editor').hidden=false;$('participant-name').focus();}));
     }
     const remove=participantButton('Удалить ребёнка',()=>askDelete(child));remove.className+=' danger-link';actions.append(remove);
@@ -248,8 +253,8 @@ async function startCloud(){
     if(next!==data)tx.update(ref,{deleting:true,archived:true,accessVersion:next.accessVersion});
    });
    const cacheClean=purgeProfileCache(id);
-   // Only these two child subcollections are written by this application.
-   for(const name of ['results','exchanges']){
+   // All child-owned collections, including oral assessment history.
+   for(const name of ['results','exchanges','checks','checkLive']){
     while(true){
      const snap=await F.getDocsFromServer(F.query(F.collection(db,'families',ownerFamily,'children',id,name),F.limit(100)));
      if(!snap.docs.length)break;
