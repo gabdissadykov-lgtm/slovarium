@@ -3,11 +3,24 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Изучаем английский, казахский и русский по карточкам: девять тем, 829 записей и уроки по трём языкам.">
-<title>Словариум — три языка, один мир</title><link rel="stylesheet" href="styles.css"><script src="script.js" defer></script>
+<title>Словариум — три языка, один мир</title><link rel="stylesheet" href="styles.css"><script src="firebase-config.js" defer></script><script src="cloud-model.js" defer></script><script src="script.js" defer></script><script src="cloud.js" defer></script>
 </head>
 <body>
 <header><span class="brand"><span class="logo" aria-hidden="true">С</span>Словариум</span><span class="header-note">Три языка. Один большой мир.</span></header>
 <main>
+<section id="account" class="wallet" aria-labelledby="account-title" hidden>
+<div class="wallet-heading"><h2 id="account-title">Моя семья</h2><button id="account-signout" class="secondary" hidden>Выйти</button></div>
+<p id="account-status" role="status" aria-live="polite">Подключаемся…</p>
+<div id="account-login" hidden><p>Родитель создаёт семью, ребёнок подключает своё устройство.</p><div class="builder-actions"><button id="parent-login" class="primary">Я родитель · вход через Google</button><button id="child-login" class="secondary">Я ребёнок</button></div></div>
+<div id="child-pairing" hidden><p>Покажи этот код родителю. Он введёт его в своём кабинете и подключит твой профиль.</p><p id="device-code" class="device-code"></p><button id="copy-device" class="secondary">Скопировать код</button><p class="muted">Не публикуй код. Если вышел из аккаунта или сменил браузер, попроси родителя подключить новый код.</p></div>
+<div id="parent-dashboard" hidden>
+<form id="child-create-form"><label for="child-name">Имя ребёнка</label><div class="builder-actions"><input id="child-name" maxlength="40" required autocomplete="off"><button class="primary" type="submit">Добавить ребёнка</button></div></form>
+<div id="family-children" class="family-children"></div>
+<section id="profile-tools" hidden><h3 id="profile-name"></h3><form id="device-pair-form"><label for="device-input">Код с устройства ребёнка</label><div class="builder-actions"><input id="device-input" required autocomplete="off" spellcheck="false"><button type="submit" class="secondary">Подключить устройство</button></div></form><div id="linked-devices"></div>
+<p class="muted">Перенос прежнего прогресса возможен только в пустой профиль. Сначала сохраните копию из локальной версии.</p><label for="import-file">Открыть резервную копию</label><input id="import-file" type="file" accept=".json,application/json"><div id="import-preview" hidden><p id="import-summary"></p><div class="builder-actions"><button id="import-confirm" class="primary">Перенести в этот профиль</button><button id="import-cancel" class="secondary">Отмена</button></div></div></section>
+</div>
+</section>
+<div class="backup-tools"><button id="backup-export" class="secondary" type="button">Сохранить резервную копию</button><p id="backup-status" class="muted" role="status"></p></div>
 <section class="wallet" aria-labelledby="wallet-title">
 <div class="wallet-heading"><h2 id="wallet-title">Мои $lovari</h2><button id="exchange-toggle" class="secondary" aria-expanded="false" aria-controls="exchange-panel">Обмен</button></div>
 <p id="wallet-balance" class="wallet-balance"></p>
@@ -16,7 +29,7 @@
 <p class="muted">10 за слово · 20 за предложение. Без ошибок, один раз за задание.</p>
 <p id="wallet-message" role="status" aria-live="polite"></p>
 <div id="exchange-panel" hidden>
-<h3>Обмен $lovari</h3><p>Обмен подтверждает родитель. Этот раздел пока без защиты. Курс и передачу денег вы согласуете сами.</p>
+<h3>Обмен $lovari</h3><p>Обмен подтверждает родитель. В локальном режиме этот раздел без защиты. Курс и передачу денег вы согласуете сами.</p>
 <button id="exchange-start" class="primary">Обменять</button>
 <div id="exchange-confirmation" hidden><p id="exchange-confirm-text"></p><div class="builder-actions"><button id="exchange-cancel" class="secondary">Отмена</button><button id="exchange-confirm" class="primary">Обменять</button></div></div>
 <h3>История обменов</h3><p id="exchange-empty" class="muted">Обменов пока нет</p><ul id="exchange-history"></ul>

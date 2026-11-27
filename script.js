@@ -4758,12 +4758,12 @@ function topicIllustration(id) {
   return `<svg viewBox="0 0 160 120" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="80" cy="64" r="51" fill="var(--topic-disc)" stroke="none"/>${topicDesigns[id].art}</svg>`;
 }
 
-function mount() {
+function mount(online=null) {
   const game=new WordGame(Math.random,(kind,id)=>wallet.reward(kind,id));
   const $=id=>document.getElementById(id);
   const sentenceHelp=createSentenceHelp(document,window,$('sentence-text'),$('word-tooltip'));
   let storage;try {storage=window.localStorage;} catch { /* Access may be blocked. */ }
-  const wallet=new SlovariWallet(storage);
+  const wallet=online?.wallet || new SlovariWallet(storage);
   let pendingExchange=null;
   function renderWallet() {
     $('wallet-balance').textContent=`Баланс: ${wallet.balance} $lovari`;
@@ -4772,7 +4772,7 @@ function mount() {
     $('wallet-earned').textContent=`Всего заработано: ${wallet.earned} $lovari`;
     $('wallet-message').textContent=wallet.message;
     $('wallet-intro').hidden=wallet.raw!==null;
-    $('exchange-start').disabled=wallet.blocked||!wallet.saved||wallet.balance===0;
+    $('exchange-start').disabled=wallet.blocked||!wallet.saved||wallet.balance===0||online?.role==='child';
     $('exchange-start').textContent=`Обменять ${wallet.balance} $lovari`;
     $('exchange-history').replaceChildren();
     for(const item of [...wallet.state.exchanges].reverse()) {
@@ -4788,15 +4788,15 @@ function mount() {
     $('exchange-panel').hidden=!open;$('exchange-toggle').setAttribute('aria-expanded',String(open));cancelExchange();renderWallet();
   });
   $('exchange-start').addEventListener('click',()=>{
-    if(wallet.blocked||!wallet.saved||wallet.balance===0)return;
+    if(wallet.blocked||!wallet.saved||wallet.balance===0||online?.role==='child')return;
     pendingExchange=wallet.balance;
     $('exchange-confirm-text').textContent=`Обменять ${pendingExchange} $lovari? Баланс станет нулевым. Достижения сохранятся. Деньги передаёт родитель.`;
     $('exchange-confirm').textContent=`Обменять ${pendingExchange} $lovari`;
     $('exchange-confirmation').hidden=false;$('exchange-cancel').focus();
   });
   $('exchange-cancel').addEventListener('click',()=>{cancelExchange();$('exchange-start').focus();});
-  $('exchange-confirm').addEventListener('click',()=>{wallet.exchange(pendingExchange);cancelExchange();renderWallet();$('exchange-toggle').focus();});
-  const progress=new CourseProgress(storage);
+  $('exchange-confirm').addEventListener('click',async()=>{const amount=pendingExchange;cancelExchange();$('exchange-confirm').disabled=true;try{const operation=wallet.exchange(amount);if(operation?.then)await operation;}finally{$('exchange-confirm').disabled=false;renderWallet();$('exchange-toggle').focus();}});
+  const progress=online?.progress || new CourseProgress(storage);
   let selectedModule=progress.selection.module,screen=progress.selection.screen || 'catalog';
   function start(id) {
     if(!Object.hasOwn(courseLessons,id)) return;
@@ -5002,7 +5002,9 @@ function mount() {
   });
   $('advance').addEventListener('click',()=>{if(!wallet.blocked)wallet.message='';game.advance();render();});
   $('back-modules').addEventListener('click',showTopics);
+  if(online)online.repaint=()=>{renderWallet();renderCatalog();};
   if(screen==='lesson' && progress.selection.lesson) start(progress.selection.lesson);else render();
 }
 if(typeof module!=='undefined' && module.exports) module.exports={SlovariWallet,walletStorageKey,topicDesigns,topicIllustration,validSelection,courseContentIssues,validAssemblyScore,sentenceWords,wordKey,sentenceSignature,assemblySentenceParts,assemblyTasks,assemblyBank,courseEntries,courseLessons,courseModules,CourseProgress,courseStorageKey,entriesFor,tasksFor,courseSentenceParts,sentenceParts,createSentenceHelp,legacySentenceBank:sentenceBank,sentenceBank:assemblyBank,SentenceGame,vocabulary,categories,languages,WordGame,shuffle,loadCategory,saveCategory,storageKey};
-if(typeof document!=='undefined') mount();
+if(typeof window!=='undefined')window.SlovariumCore={mount,CourseProgress,SlovariWallet,courseStorageKey,walletStorageKey,courseLessons,courseEntries,assemblyTasks,validScore,validAssemblyScore,sentenceSignature};
+if(typeof document!=='undefined' && !window.SlovariumOnline) mount();
