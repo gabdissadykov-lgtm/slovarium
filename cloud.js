@@ -124,6 +124,7 @@ async function startCloud(){
   finally{flushing=false;}
  }
  function queueReward(kind,id){
+  if(role!=='child')return;
   if(!active||active.wallet.blocked)return;
   const known=kind==='words'?core.courseEntries:core.assemblyTasks;
   if(!['words','sentences'].includes(kind)||!known.some(t=>t.id===id))return;
@@ -185,7 +186,7 @@ async function startCloud(){
   queueKey=`slovarium.pending:${auth.currentUser.uid}:${family}:${selected}${profileVersion?`:v${profileVersion}`:''}`;
   queue={rewards:[],results:{}};
   try{
-   const old=JSON.parse(localStorage.getItem(queueKey));
+   const old=role==='child'?JSON.parse(localStorage.getItem(queueKey)):null;
    if(old){
     if((old.accessVersion??0)!==profileVersion||!Array.isArray(old.rewards)||!old.results||typeof old.results!=='object')throw Error('invalid queue');
     queue.rewards=old.rewards.filter(r=>['words','sentences'].includes(r.kind)&&(r.kind==='words'?core.courseEntries:core.assemblyTasks).some(t=>t.id===r.id));
@@ -210,7 +211,7 @@ async function startCloud(){
    constructor(){super({getItem:()=>JSON.stringify({version:2,results:queue.results}),setItem(){}});this.cloudReady=true;}
    persist(){this.saved=true;/* Selection stays in this session; results have their own documents. */}
    record(id,level,score){
-    if(active!==owner||!active||active.wallet.blocked)return;
+    if(role!=='child'||active!==owner||!active||active.wallet.blocked)return;
     const before=JSON.stringify(this.results[id]);super.record(id,level,score);
     if(this.cloudReady&&JSON.stringify(this.results[id])!==before){queue.results[id]=JSON.parse(JSON.stringify(this.results[id]));persistQueue();syncStatus();void flush();}
    }
@@ -246,7 +247,6 @@ async function startCloud(){
   for(const text of [`Выучено слов: ${child.wallet.words.length}`,`Освоено предложений: ${child.wallet.sentences.length}`,`Баланс: ${model.balance(child.wallet)} $lovari`,`Всего заработано: ${model.earned(child.wallet)} $lovari`]){const p=document.createElement('p');p.textContent=text;$('child-profile-summary').append(p);}
   const actions=$('child-profile-actions'),live=model.isActive(child)&&selected===child.id&&Boolean(active);
   if(live){
-   actions.append(participantButton('Учиться',()=>window.SlovariumUI?.open('learning')));
    actions.append(participantButton('Прогресс',()=>window.SlovariumUI?.open('progress-view')));
    actions.append(participantButton('Кошелёк и обмен',()=>window.SlovariumUI?.open('wallet-view')));
    actions.append(participantButton('Проверить знания',()=>{$('oral-check').scrollIntoView({behavior:'smooth'});}));

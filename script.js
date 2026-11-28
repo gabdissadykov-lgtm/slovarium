@@ -4780,12 +4780,13 @@ function initializeInterface() {
     const cabinet=Boolean(parentName)&&['settings-view','welcome'].includes(current);
     const label=cabinet?parentName:(current==='child-profile-view'&&detail?detail.name:childName);
     $('profile-button').textContent=label;$('profile-button').title=label;
-    $('app-nav').hidden=!ready||current==='welcome'||cabinet||(current==='child-profile-view'&&!detail?.available);
+    $('app-nav').hidden=Boolean(parentName)||!ready||current==='welcome'||cabinet||(current==='child-profile-view'&&!detail?.available);
     $('header-balance').hidden=!ready||current==='welcome'||cabinet;
     $('parent-cabinet-return').hidden=!parentName||cabinet||current==='child-profile-view';
     if(current==='child-profile-view'&&detail){$('balance-short').textContent=`${detail.balance} $lovari`;$('header-balance').disabled=!ready||!detail.available;}
   }
   function open(view,trigger) {
+    if(parentName&&view==='learning')view=detail?'child-profile-view':'settings-view';
     if(!views.includes(view)||(!ready&&!['settings-view','welcome','child-profile-view'].includes(view)))return;
     if(view==='child-profile-view'&&(!parentName||!detail))return;
     if(current===view){viewChanged(view);renderHeader();return;}
@@ -4859,8 +4860,7 @@ function mount(online=null) {
   const wallet=online?.wallet || new SlovariWallet(storage);
   const ui=window.SlovariumUI;
   ui?.setReady();
-  ui?.onTopics(showTopics);
-  ui?.open('learning');
+  if(online?.role!=='parent'){ui?.onTopics(showTopics);ui?.open('learning');}
   let pendingExchange=null;
   function renderWallet() {
     $('wallet-balance').textContent=`Баланс: ${wallet.balance} $lovari`;
@@ -4940,6 +4940,11 @@ function mount(online=null) {
       else {const empty=document.createElement('p');empty.textContent='Сохранённых результатов пока нет';section.append(empty);}
       results.append(section);
     }
+  }
+  if(online?.role==='parent'){
+    $('home').hidden=true;$('lesson').hidden=true;
+    online.dispose=()=>{sentenceHelp.destroy?.();listeners.forEach(stop=>stop());};
+    online.repaint=renderWallet;renderWallet();return;
   }
   listen($('continue-course'),'click',()=>{
     const selection=progress.selection;

@@ -3,7 +3,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-test('parent cabinet hides child balance; learning shows selected child through updates and returns',()=>{
+test('parent reviews child details without learning; child retains learning navigation',()=>{
  const elements=new Map();
  const get=id=>{if(!elements.has(id))elements.set(id,{hidden:false,textContent:'',setAttribute(){},removeAttribute(){},focus(){},addEventListener(){}});return elements.get(id);};
  const source=fs.readFileSync('script.js','utf8');
@@ -11,17 +11,17 @@ test('parent cabinet hides child balance; learning shows selected child through 
  const context={document:{getElementById:get,querySelectorAll:()=>[]},window:{SlovariumOnline:true},MutationObserver:class{observe(){}}};
  vm.createContext(context);vm.runInContext(fn+'\nthis.ui=initializeInterface();',context);
  const ui=context.ui;
- ui.parent('Гани');ui.profile('Родитель');ui.setReady();ui.open('learning');ui.profile('Яссауи');
- assert.equal(get('profile-button').textContent,'Яссауи');assert.equal(get('header-balance').hidden,false);assert.equal(get('parent-cabinet-return').hidden,false);
+ ui.parent('Гани');ui.profile('Родитель');ui.setReady();ui.detail({name:'Яссауи',balance:1000,available:true});ui.open('child-profile-view');ui.profile('Яссауи');
+ assert.equal(get('profile-button').textContent,'Яссауи');assert.equal(get('header-balance').hidden,false);assert.equal(get('parent-cabinet-return').hidden,true);assert.equal(get('app-nav').hidden,true);
  ui.open('settings-view');
  assert.equal(get('profile-button').textContent,'Гани');assert.equal(get('header-balance').hidden,true);assert.equal(get('app-nav').hidden,true);
  ui.profile('Яссауи');ui.setReady();
  assert.equal(get('profile-button').textContent,'Гани');assert.equal(get('header-balance').hidden,true);
- ui.open('learning');ui.profile('Әлия');
+ ui.detail({name:'Әлия',balance:10,available:true});ui.open('learning');ui.profile('Әлия');assert.equal(get('learning').hidden,true);assert.equal(get('child-profile-view').hidden,false);
  assert.equal(get('profile-button').textContent,'Әлия');assert.equal(get('header-balance').hidden,false);
  ui.open('progress-view');assert.equal(get('profile-button').textContent,'Әлия');
  ui.open('wallet-view');assert.equal(get('header-balance').hidden,false);
  ui.open('welcome');assert.equal(get('profile-button').textContent,'Гани');assert.equal(get('header-balance').hidden,true);
- ui.parent(null);ui.profile('Әлия');ui.open('learning');
+ ui.parent(null);ui.profile('Әлия');ui.open('learning');assert.equal(get('learning').hidden,false);assert.equal(get('app-nav').hidden,false);
  assert.equal(get('profile-button').textContent,'Әлия');assert.equal(get('header-balance').hidden,false);assert.equal(get('parent-cabinet-return').hidden,true);
 });

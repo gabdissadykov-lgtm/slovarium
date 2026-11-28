@@ -271,3 +271,14 @@ test('switching child cancels an unfinished backup preview instead of importing 
  parent.elements['profile-cabinet-return'].click();await openChild(parent,'Яссауи');finish(JSON.stringify({format:'slovarium-backup',version:1,wallet:model.emptyWallet(),course:{version:2,results:{}}}));await read;
  assert.equal(parent.elements['import-preview'].hidden,true);await parent.elements['import-confirm'].onclick();await settle();assert.equal(back.docs.get(`families/${family}/children/two`).imported,undefined);
 });
+
+test('parent profile is observation-only: no learning action, no answer recording or educational rewards',async()=>{
+ const back=backend(),family='parent-uid',child='one',path=`families/${family}/children/${child}`;
+ back.docs.set(path,{name:'Әлия',wallet:model.emptyWallet(),activity:false});
+ const parent=await session(back,{uid:family,isAnonymous:false,displayName:'Гани'});await openChild(parent,'Әлия');
+ assert.equal(buttonIn(parent.elements['child-profile-actions'],'Учиться'),undefined);assert.equal(parent.elements['app-nav'].hidden,true);
+ parent.context.window.SlovariumUI.open('learning');assert.equal(parent.elements.learning.hidden,true);assert.equal(parent.elements['child-profile-view'].hidden,false);
+ parent.active.wallet.reward('words','m1-r001');parent.active.progress.record('m1-l1','cards',{total:20,firstTryCorrect:20,errors:0});await settle();
+ assert.equal(back.docs.get(path).wallet.words.length,0);assert.equal(back.docs.has(path+'/results/m1-l1'),false);
+ buttonIn(parent.elements['child-profile-actions'],'Прогресс').click();assert.equal(parent.elements['progress-view'].hidden,false);
+});

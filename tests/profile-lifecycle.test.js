@@ -16,9 +16,10 @@ test('real mounted game releases fixed controls and tooltip listeners before ano
  const window=new Target();Object.assign(window,{SlovariumOnline:true,clearTimeout(){},setTimeout(){return 1;}});
  const context={window,document:doc,MutationObserver:class{observe(){}}};vm.runInNewContext(fs.readFileSync('script.js','utf8'),context);
  const core=window.SlovariumCore,store={getItem:()=>null,setItem(){}};
- const session=()=>({role:'parent',wallet:new core.SlovariWallet(store),progress:new core.CourseProgress(store)});
+ const session=()=>({role:'child',wallet:new core.SlovariWallet(store),progress:new core.CourseProgress(store)});
  const first=session();core.mount(first);
  assert.equal(e['translation-check'].events.click.length,1);assert.equal(e['exchange-confirm'].events.click.length,1);assert.equal(doc.events.keydown.length,1);assert.equal(window.events.resize.length,1);
  first.dispose();assert.equal(e['translation-check'].events.click.length,0);assert.equal(e['exchange-confirm'].events.click.length,0);assert.equal(doc.events.keydown.length,0);assert.equal(window.events.resize.length,0);
  const second=session();core.mount(second);assert.equal(e['translation-check'].events.click.length,1);assert.equal(e['exchange-confirm'].events.click.length,1);assert.equal(doc.events.keydown.length,1);second.dispose();
+ const parent={...session(),role:'parent'};window.SlovariumUI.parent('Родитель');core.mount(parent);assert.equal(e['translation-check'].events.click.length,0);assert.equal(e['exchange-confirm'].events.click.length,1);assert.equal(e.lesson.hidden,true);assert.equal(e.home.hidden,true);parent.dispose();
 });
