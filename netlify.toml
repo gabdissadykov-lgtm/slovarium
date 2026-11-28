@@ -2,6 +2,10 @@
   command = "mkdir -p dist && cp index.html styles.css script.js firebase-config.js cloud-model.js oral-check.js cloud.js _headers dist/"
   publish = "dist"
 
+[build.environment]
+  # Public Firebase Web API key only; other secret scanning remains enabled.
+  SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyDmTzlpcEsbCRVeMnu2fDnmMoEdzf9B3aM"
+
 [[headers]]
   for = "/*"
   [headers.values]
