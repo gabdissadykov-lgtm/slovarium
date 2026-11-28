@@ -42,6 +42,7 @@ async function startCloud(){
  const deviceRef=uid=>F.doc(db,'devices',uid);
  const resultRef=(family,id,lesson)=>F.doc(db,'families',family,'children',id,'results',lesson);
  let family=null,selected=null,role=null,children=[],mounted=false,stops=[],profileStop=null,devicesStop=null,importData=null;
+ let connectingChild=false,pendingConnection=null;
  let queue=null,queueKey=null,flushing=false,queueDurable=true,historyDates={};
  let profileVersion=0,bindingVersion=0,profileListeners=[],editingId=null,deleteId=null,participantBusy=false,deletionInProgress=null;
  function withHistory(w){return {...w,exchanges:w.exchanges.map((item,i)=>({...item,date:historyDates[i]||item.date}))};}
@@ -314,16 +315,43 @@ async function startCloud(){
   await A.signOut(auth);try{sessionStorage.removeItem('slovarium.selectedChild');}catch{}location.reload();
  });
  $('copy-device').onclick=()=>guarded(async()=>{await navigator.clipboard.writeText(auth.currentUser.uid);status('Код скопирован. Передайте его родителю.');});
- $('child-create-form').onsubmit=event=>{event.preventDefault();void guarded(async()=>{
-  if(role!=='parent'||!navigator.onLine)throw Error('Для добавления ребёнка нужен родитель и подключение к интернету');
-  const name=model.participantName($('child-name').value);
-  const ref=await F.addDoc(kidsRef(family),{name,wallet:model.emptyWallet(),activity:false,archived:false,accessVersion:0,createdAt:F.serverTimestamp()});$('child-name').value='';choose(ref.id);
+ $('child-create-form').onsubmit=event=>{event.preventDefault();if(connectingChild)return;void guarded(async()=>{
+  if(role!=='parent'||!navigator.onLine)throw Error('Для подключения ребёнка нужен родитель и подключение к интернету');
+  const name=model.participantName($('child-name').value),uid=$('child-device-code').value.trim();
+  if(!/^[A-Za-z0-9_-]{20,128}$/.test(uid))throw Error('Проверьте код устройства');
+  connectingChild=true;$('child-connect-submit').disabled=true;
+  const ownerFamily=family,pendingKey=`slovarium.connectChild:${ownerFamily}`;
+  try{
+   if(!pendingConnection){try{const saved=JSON.parse(localStorage.getItem(pendingKey));if(saved&&typeof saved.id==='string'&&/^[A-Za-z0-9_-]+$/.test(saved.id)&&saved.uid===uid)pendingConnection=saved;}catch{}}
+   if(!pendingConnection||pendingConnection.uid!==uid)pendingConnection={uid,id:F.doc(kidsRef(ownerFamily)).id};
+   const attempt=pendingConnection,ref=childRef(ownerFamily,attempt.id);
+   try{localStorage.setItem(pendingKey,JSON.stringify(attempt));}catch{}
+   status('Подключаем ребёнка…');
+   await F.runTransaction(db,async tx=>{
+    const device=deviceRef(uid),deviceSnap=await tx.get(device),profile=await tx.get(ref);
+    if(!deviceSnap.exists())throw Error('Код не найден. На устройстве ребёнка нажмите «Я ребёнок».');
+    const binding=deviceSnap.data();
+    if(binding.family||binding.child){
+     if(binding.family===ownerFamily&&binding.child===ref.id&&profile.exists()){
+      model.requireActive(profile.data());
+      if(model.accessVersion(binding)!==model.accessVersion(profile.data()))throw Error('Устройство отключено. Подключите его из существующего профиля.');
+      return; // The same attempt was already confirmed by the server.
+     }
+     throw Error('Устройство уже подключено. Для нового ребёнка используйте свободный код.');
+    }
+    if(profile.exists())throw Error('Профиль уже существует. Подключите устройство из его профиля.');
+    tx.set(ref,{name,wallet:model.emptyWallet(),activity:false,archived:false,accessVersion:0,createdAt:F.serverTimestamp()});
+    tx.update(device,{family:ownerFamily,child:ref.id,accessVersion:0});
+   });
+   pendingConnection=null;try{localStorage.removeItem(pendingKey);}catch{}
+   $('child-name').value='';$('child-device-code').value='';status('Ребёнок подключён.');choose(ref.id);
+  }finally{connectingChild=false;$('child-connect-submit').disabled=false;}
  });};
  $('device-pair-form').onsubmit=event=>{event.preventDefault();void guarded(async()=>{
   const uid=$('device-input').value.trim();if(!/^[A-Za-z0-9_-]{20,128}$/.test(uid))throw Error('Проверьте код устройства');
   if(role!=='parent'||!selected||!navigator.onLine)throw Error('Выберите ребёнка и проверьте подключение к интернету');
   await F.runTransaction(db,async tx=>{const ref=deviceRef(uid),snap=await tx.get(ref),profile=await tx.get(childRef(family,selected));if(!profile.exists())throw Error('Профиль не найден');model.requireActive(profile.data());if(!snap.exists())throw Error('Код не найден. На устройстве ребёнка нажмите «Я ребёнок».');
-   if(snap.data().family&&snap.data().family!==family)throw Error('Устройство уже подключено к другой семье');
+   if((snap.data().family||snap.data().child)&&(snap.data().family!==family||snap.data().child!==selected))throw Error('Устройство уже подключено к другому профилю. Сначала отключите его.');
    const version=model.accessVersion(profile.data());
    tx.update(ref,{family,child:selected,accessVersion:version});
   });$('device-input').value='';status('Устройство подключено к выбранному ребёнку.');

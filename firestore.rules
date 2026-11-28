@@ -58,7 +58,8 @@ service cloud.firestore {
     request.resource.data.keys().hasOnly(['family','child','accessVersion']) && generation(request.resource.data) is int && generation(request.resource.data)>=0 &&
     ((request.resource.data.family == '' && request.resource.data.child == '' && resource.data.family == request.auth.uid) ||
      (request.resource.data.family == request.auth.uid && request.resource.data.child is string &&
-      activeProfile(request.auth.uid,request.resource.data.child) && activeAfter(request.auth.uid,request.resource.data.child) &&
+      (resource.data.family == '' || resource.data.child == request.resource.data.child) &&
+      activeAfter(request.auth.uid,request.resource.data.child) &&
       generation(request.resource.data) == generation(getAfter(/databases/$(database)/documents/families/$(request.auth.uid)/children/$(request.resource.data.child)).data)));
    allow delete: if false;
   }

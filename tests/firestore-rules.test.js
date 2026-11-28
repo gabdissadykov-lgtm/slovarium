@@ -26,6 +26,25 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  ok(await read(profile,kid));denied(await read(profile,stranger));denied(await read(profile));
  denied(await write(profile,{name:'Hacked'},kid,true));denied(await write(profile,{archived:true,accessVersion:1},kid,true));
  denied(await write(profile,{name:'Hacked'},stranger,true));
+ // New child and device binding commit atomically; an occupied code cannot be moved.
+ const freshUid='new-anonymous-device-123456789',freshKid={uid:freshUid,provider:'anonymous'},freshProfile=`families/${parent}/children/atomic-child`;
+ ok(await write('devices/'+freshUid,{family:'',child:''},freshKid));
+ const createAndPair=(profilePath,uid,user)=>request(':commit','POST',{writes:[
+  {update:{name:`projects/${project}/databases/(default)/documents/${profilePath}`,fields:fields({name:'Әлия',wallet,activity:false,archived:false,accessVersion:0})},currentDocument:{exists:false}},
+  {update:{name:`projects/${project}/databases/(default)/documents/devices/${uid}`,fields:fields({family:parent,child:profilePath.split('/').at(-1),accessVersion:0})},currentDocument:{exists:true}}
+ ]},user);
+ denied(await createAndPair(freshProfile,freshUid,kid));
+ denied(await createAndPair(freshProfile,freshUid,stranger));
+ assert.equal((await read(freshProfile,owner)).status,404);
+ ok(await createAndPair(freshProfile,freshUid,owner));ok(await read(freshProfile,freshKid));
+ const orphan=`families/${parent}/children/should-not-exist`;
+ denied(await createAndPair(orphan,freshUid,owner));assert.equal((await read(orphan,owner)).status,404);
+ denied(await write('devices/'+freshUid,{family:parent,child:'missing-profile',accessVersion:0},owner));
+ denied(await write('devices/'+freshUid,{family:other,child:'atomic-child',accessVersion:0},stranger));
+ denied(await write('devices/'+freshUid,{family:parent,child:'atomic-child',accessVersion:1},owner));
+ // A new empty device can still attach to an existing active profile.
+ const extraUid='extra-anonymous-device-123456789';ok(await write('devices/'+extraUid,{family:'',child:''},{uid:extraUid,provider:'anonymous'}));
+ ok(await write('devices/'+extraUid,{family:parent,child:'atomic-child',accessVersion:0},owner));
  // Oral checks: private plans, minimal current prompt, readiness-only child writes.
  const oralPrivate=profile+'/checks/session',oralLive=profile+'/checkLive/current';
  const invitation={session:'session',status:'waiting',step:0,total:10,ready:false,prompt:'house',from:'en',to:'kk',word:1};

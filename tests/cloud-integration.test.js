@@ -10,17 +10,17 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle(){for(let i=0;i<12;i++)await tick();}
 function storage(){const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k),get length(){return map.size;},key:i=>[...map.keys()][i]??null,map};}
 function backend(){
- const docs=new Map(),listeners=[],controls={batch:0,failBatchAt:0,onQuery:null};let serial=Promise.resolve();
+ const docs=new Map(),listeners=[],controls={batch:0,failBatchAt:0,onQuery:null};let serial=Promise.resolve(),nextDoc=0;
  const snap=ref=>({id:ref.path.split('/').at(-1),ref,exists:()=>docs.has(ref.path),metadata:{fromCache:false,hasPendingWrites:false},data:()=>structuredClone(docs.get(ref.path))});
  const get=(ref)=>ref.type==='collection'?{docs:[...docs.keys()].filter(k=>k.startsWith(ref.path+'/')&&k.split('/').length===ref.path.split('/').length+1).map(path=>snap({path})).filter(d=>!ref.filters||ref.filters.every(f=>d.data()[f.field]===f.value)).slice(0,ref.max??Infinity)}:snap(ref);
  const notify=()=>listeners.slice().forEach(l=>queueMicrotask(()=>{if(listeners.includes(l))l.fn(get(l.ref));}));
- const api={getFirestore:()=>({}),doc:(_, ...path)=>{const p=_.path?_.path+'/'+(path[0]||'session-'+docs.size):path.join('/');return {type:'doc',path:p,id:p.split('/').at(-1)};},collection:(_, ...path)=>({type:'collection',path:path.join('/')}),where:(field,op,value)=>({field,value}),limit:max=>({max}),query:(ref,...filters)=>({...ref,filters:filters.filter(f=>f.field),max:filters.find(f=>f.max)?.max}),
+ const api={getFirestore:()=>({}),doc:(_, ...path)=>{const p=_.path?_.path+'/'+(path[0]||'session-'+(++nextDoc)):path.join('/');return {type:'doc',path:p,id:p.split('/').at(-1)};},collection:(_, ...path)=>({type:'collection',path:path.join('/')}),where:(field,op,value)=>({field,value}),limit:max=>({max}),query:(ref,...filters)=>({...ref,filters:filters.filter(f=>f.field),max:filters.find(f=>f.max)?.max}),
   async getDocFromServer(ref){return get(ref);},
   async getDocsFromServer(ref){const result=get(ref);controls.onQuery?.(ref,result);return result;},
   writeBatch(){const refs=[];return {delete:ref=>refs.push(ref),async commit(){controls.batch++;if(controls.batch===controls.failBatchAt)throw Object.assign(Error('Сбой сети'),{code:'unavailable'});for(const ref of refs)docs.delete(ref.path);notify();}};},
   serverTimestamp:()=>({server:true}),Timestamp:{fromDate:d=>d.toISOString()},
   onSnapshot(ref,options,callback){const fn=typeof options==='function'?options:callback;const l={ref,fn};listeners.push(l);queueMicrotask(()=>fn(get(ref)));return ()=>listeners.splice(listeners.indexOf(l),1);},
-  runTransaction(db,fn){const task=serial.then(async()=>{const writes=[];const tx={get:async ref=>snap(ref),set:(ref,value)=>writes.push([ref,value]),update:(ref,value)=>writes.push([ref,{...docs.get(ref.path),...value}]),delete:ref=>writes.push([ref,null])};await fn(tx);for(const [ref,value]of writes){if(value===null)docs.delete(ref.path);else docs.set(ref.path,structuredClone(value));}notify();});serial=task.catch(()=>{});return task;},
+  runTransaction(db,fn){const task=serial.then(async()=>{const writes=[];const tx={get:async ref=>snap(ref),set:(ref,value)=>writes.push([ref,value]),update:(ref,value)=>writes.push([ref,{...docs.get(ref.path),...value}]),delete:ref=>writes.push([ref,null])};await fn(tx);for(const [ref,value]of writes){if(value===null)docs.delete(ref.path);else docs.set(ref.path,structuredClone(value));}notify();if(controls.loseNextAck){controls.loseNextAck=false;throw Object.assign(Error('Нет подтверждения'),{code:'unavailable'});}});serial=task.catch(()=>{});return task;},
   async addDoc(ref,value){const id='kid'+(docs.size+1),path=ref.path+'/'+id;docs.set(path,structuredClone(value));notify();return {id,path};},
   async updateDoc(ref,value){docs.set(ref.path,{...docs.get(ref.path),...value});notify();}
  };
@@ -128,6 +128,7 @@ test('deletion: deleting the open and last child closes the exercise without int
  buttonIn(parent.elements['family-children'],'Удалить ребёнка').click();await parent.elements['participant-confirm'].click();await settle();
  assert.equal(oldWallet.blocked,true);assert.equal(await oldWallet.exchange(10),false);assert.equal(parent.context.reloads,0);assert.equal(selection.getItem('slovarium.selectedChild'),null);
  assert.equal(back.docs.has(path),false);assert.equal(parent.elements['participants-empty'].hidden,false);assert.equal(parent.elements['home'].hidden,true);
+ back.docs.set('devices/new-device-123456789012345',{family:'',child:''});parent.elements['child-device-code'].value='new-device-123456789012345';
  parent.elements['child-name'].value='Алия';parent.elements['child-create-form'].onsubmit({preventDefault(){}});await settle();
  const childDocs=[...back.docs.entries()].filter(([k])=>k.startsWith(`families/${family}/children/`));assert.equal(childDocs.length,1);assert.notEqual(childDocs[0][0],path);assert.equal(model.balance(childDocs[0][1].wallet),0);
 });
@@ -182,4 +183,41 @@ test('oral: two independent sessions, invitation, readiness, duplicate grade, F5
  assert.deepEqual(back.docs.get(`families/${family}/children/${child}`).wallet,model.emptyWallet());
  const row=e['family-children'].children[0];await row.children.at(-1).children.find(b=>b.textContent==='Удалить ребёнка').click();await e['participant-confirm'].click();await settle();
  assert.ok(![...back.docs.keys()].some(p=>p.startsWith(`families/${family}/children/${child}/`)));
+});
+
+test('one form: invalid, missing, bound and offline codes never create a profile; double submit links once',async()=>{
+ const back=backend(),family='parent-uid',uid='free-device-123456789012345';
+ const parent=await session(back,{uid:family,isAnonymous:false});
+ const form=parent.elements['child-create-form'],name=parent.elements['child-name'],code=parent.elements['child-device-code'];
+ const submit=()=>form.onsubmit({preventDefault(){}});
+ const profiles=()=>[...back.docs.keys()].filter(k=>k.startsWith(`families/${family}/children/`));
+ name.value='Әлия';code.value='bad';submit();await settle();assert.equal(profiles().length,0);assert.equal(name.value,'Әлия');
+ code.value=uid;submit();await settle();assert.equal(profiles().length,0);assert.match(parent.elements['account-status'].textContent,/Код не найден/);
+ back.docs.set('devices/'+uid,{family:'',child:''});parent.context.navigator.onLine=false;submit();await settle();assert.equal(profiles().length,0);assert.equal(code.value,uid);
+ parent.context.navigator.onLine=true;submit();submit();await settle();
+ assert.equal(profiles().length,1);const id=profiles()[0].split('/').at(-1);
+ assert.equal(back.docs.get('devices/'+uid).child,id);assert.equal(back.docs.get(profiles()[0]).name,'Әлия');assert.equal(name.value,'');assert.equal(code.value,'');assert.equal(parent.elements['child-connect-submit'].disabled,false);
+ name.value='Другой ребёнок';code.value=uid;submit();await settle();assert.equal(profiles().length,1);assert.equal(name.value,'Другой ребёнок');assert.equal(back.docs.get('devices/'+uid).child,id);
+ const other='other-device-123456789012345';back.docs.set('devices/'+other,{family:'other-family',child:'foreign'});code.value=other;submit();await settle();assert.equal(profiles().length,1);assert.equal(back.docs.get('devices/'+other).child,'foreign');
+});
+test('one form: lost server acknowledgement survives reload and retries the same profile',async()=>{
+ const back=backend(),family='parent-uid',uid='retry-device-123456789012345',local=storage();
+ back.docs.set('devices/'+uid,{family:'',child:''});
+ const first=await session(back,{uid:family,isAnonymous:false},{local});
+ first.elements['child-name'].value='Әлия';first.elements['child-device-code'].value=uid;back.controls.loseNextAck=true;
+ first.elements['child-create-form'].onsubmit({preventDefault(){}});await settle();
+ assert.equal(first.elements['child-name'].value,'Әлия');assert.ok(local.getItem('slovarium.connectChild:'+family));
+ const id=back.docs.get('devices/'+uid).child;
+ const retry=await session(back,{uid:family,isAnonymous:false},{local});retry.elements['child-name'].value='Әлия';retry.elements['child-device-code'].value=uid;
+ retry.elements['child-create-form'].onsubmit({preventDefault(){}});await settle();
+ assert.equal([...back.docs.keys()].filter(k=>k.startsWith(`families/${family}/children/`)).length,1);assert.equal(back.docs.get('devices/'+uid).child,id);assert.equal(retry.elements['child-name'].value,'');assert.equal(local.getItem('slovarium.connectChild:'+family),null);
+});
+test('one form: two parents racing for one code create one child and cannot move a bound device',async()=>{
+ const back=backend(),family='parent-uid',uid='race-device-123456789012345';back.docs.set('devices/'+uid,{family:'',child:''});
+ const a=await session(back,{uid:family,isAnonymous:false}),b=await session(back,{uid:family,isAnonymous:false});
+ for(const parent of [a,b]){parent.elements['child-name'].value='Әлия';parent.elements['child-device-code'].value=uid;parent.elements['child-create-form'].onsubmit({preventDefault(){}});}
+ await settle();const docs=[...back.docs.keys()].filter(k=>k.startsWith(`families/${family}/children/`));assert.equal(docs.length,1);assert.equal(back.docs.get('devices/'+uid).child,docs[0].split('/').at(-1));
+ const other='other-child';back.docs.set(`families/${family}/children/${other}`,{name:'Другой',wallet:model.emptyWallet(),activity:false});
+ const selected=storage();selected.setItem('slovarium.selectedChild',other);const c=await session(back,{uid:family,isAnonymous:false},{session:selected});
+ c.elements['device-input'].value=uid;c.elements['device-pair-form'].onsubmit({preventDefault(){}});await settle();assert.notEqual(back.docs.get('devices/'+uid).child,other);
 });
