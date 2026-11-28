@@ -41,13 +41,14 @@ async function startCloud(){
  const kidsRef=family=>F.collection(db,'families',family,'children');
  const deviceRef=uid=>F.doc(db,'devices',uid);
  const resultRef=(family,id,lesson)=>F.doc(db,'families',family,'children',id,'results',lesson);
+ let detailId=null,pendingProfileId=null,selectionToken=0,deleteName=null,deleteStage=0;
  let family=null,selected=null,role=null,children=[],mounted=false,stops=[],profileStop=null,devicesStop=null,importData=null;
  let connectingChild=false,pendingConnection=null;
  let queue=null,queueKey=null,flushing=false,queueDurable=true,historyDates={};
  let profileVersion=0,bindingVersion=0,profileListeners=[],editingId=null,deleteId=null,participantBusy=false,deletionInProgress=null;
  function withHistory(w){return {...w,exchanges:w.exchanges.map((item,i)=>({...item,date:historyDates[i]||item.date}))};}
  function status(text){$('account-status').textContent=text;}
- function closeEditors(){editingId=null;deleteId=null;$('participant-editor').hidden=true;$('participant-confirmation').hidden=true;}
+ function closeEditors(){importData=null;$('import-preview').hidden=true;$('import-file').value='';$('device-input').value='';editingId=null;deleteId=null;deleteName=null;deleteStage=0;$('participant-editor').hidden=true;$('participant-confirmation').hidden=true;$('participant-delete-identity').hidden=true;$('participant-delete-name').value='';$('participant-confirm').hidden=true;$('participant-confirm').disabled=true;$('participant-delete-next').hidden=false;}
  function purgeProfileCache(id){
   let cleaned=true;
   try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key&&model.profileQueueKey(key,family,id))localStorage.removeItem(key);}}catch{cleaned=false;}
@@ -58,10 +59,11 @@ async function startCloud(){
   try{const prefix=`slovarium.pending:${auth.currentUser.uid}:`;for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(prefix))localStorage.removeItem(key);}}catch{}
  }
  function revokeProfile(message,{reload=true,purge=false}={}){
+  ++selectionToken;
   oralStop?.();oralStop=null;
   if(purge&&selected)purgeProfileCache(selected);
   if(active){active.wallet.blocked=true;active.wallet.saved=false;}
-  active=null;queue={rewards:[],results:{}};importData=null;
+  active?.dispose?.();active=null;mounted=false;detailId=null;window.SlovariumUI?.detail?.(null);queue={rewards:[],results:{}};importData=null;
   $('import-preview').hidden=true;$('import-file').value='';
   $('backup-export').disabled=true;closeEditors();
   profileListeners.forEach(stop=>stop());profileListeners=[];
@@ -84,7 +86,7 @@ async function startCloud(){
   if(role==='child'&&(e.code?.includes('permission-denied')||e.message?.includes('Доступ к профилю отключён'))){revokeProfile('Доступ к профилю отключён. Обратитесь к родителю.',{purge:true});return;}
   status(friendly(e));
  }
- function repaint(){active?.repaint?.();}
+ function repaint(){active?.repaint?.();window.SlovariumUI?.refreshHeader?.();}
  function persistQueue(){try{localStorage.setItem(queueKey,JSON.stringify({...queue,accessVersion:profileVersion}));queueDurable=true;}catch{queueDurable=false;status('Очередь не сохранена в браузере. Не закрывайте страницу до восстановления связи.');}}
  function queueCount(){return queue?queue.rewards.length+Object.keys(queue.results).length:0;}
  function syncStatus(){
@@ -129,32 +131,48 @@ async function startCloud(){
   if(!queue.rewards.some(r=>r.kind===kind&&r.id===id))queue.rewards.push({kind,id});
   active.wallet.message='Награда ожидает сохранения';persistQueue();syncStatus();void flush();
  }
- function choose(id,deviceVersion=0){
+ function choose(id,deviceVersion=0,restoreOnly=false){
+  if(participantBusy)return;
   closeEditors();
-  if(role==='parent'&&selected===id&&active)$('profile-tools').hidden=false;
-  if(mounted&&(selected!==id||!active||(role==='child'&&bindingVersion!==deviceVersion))){try{sessionStorage.setItem('slovarium.selectedChild',id);}catch{}location.reload();return;}
+  if(role==='parent'){
+   const child=children.find(c=>c.id===id);
+   detailId=restoreOnly?null:id;pendingProfileId=id;
+   if(child&&!model.isActive(child)){pendingProfileId=null;renderDetails();window.SlovariumUI?.open('child-profile-view');return;}
+  }
+  if(mounted&&(selected!==id||!active||(role==='child'&&bindingVersion!==deviceVersion))){
+   if(!queueDurable&&queueCount()){status('Не удалось сохранить очередь. Дождитесь синхронизации перед сменой ребёнка.');detailId=null;return;}
+   if(queueCount()){persistQueue();if(!queueDurable){status('Очередь не сохранена. Дождитесь синхронизации перед сменой ребёнка.');detailId=null;return;}}
+   active?.dispose?.();if(active)active.wallet.blocked=true;active=null;mounted=false;
+   profileListeners.forEach(stop=>stop());profileListeners=[];oralStop?.();oralStop=null;historyDates={};
+  }
+  const token=++selectionToken;let firstSnapshot=true;
   bindingVersion=deviceVersion;selected=id;try{sessionStorage.setItem('slovarium.selectedChild',id);}catch{}
   if(role==='parent')renderChildren();
   if(profileStop)profileStop();if(devicesStop)devicesStop();
   profileStop=F.onSnapshot(childRef(family,id),snap=>{
+   if(token!==selectionToken)return;
    if(!snap.exists()){revokeProfile('Профиль удалён или недоступен. Обратитесь к родителю.',{purge:true});return;}
-   const data=snap.data();
+   const data=snap.data();pendingProfileId=null;
+   if(role==='parent'&&!children.some(c=>c.id===id))children.push({id,...data});
    if(!model.isActive(data)||(role==='child'&&model.accessVersion(data)!==bindingVersion)||(active&&model.accessVersion(data)!==profileVersion)){
     revokeProfile(role==='parent'?(data.deleting?'Удаление началось. Доступ к профилю закрыт.':'Профиль недоступен. Выберите другого ребёнка.'):'Доступ к профилю отключён. Обратитесь к родителю.',{purge:Boolean(data.deleting)||role==='child',reload:!(data.deleting&&deletionInProgress===id)});return;
    }
    window.SlovariumUI?.profile(data.name);
    $('account-title').textContent=role==='parent'?'Кабинет родителя':`Привет, ${data.name}!`;
    $('profile-name').textContent=data.name;
-   if(!mounted)mountProfile(data);
+   const firstMount=!mounted;
+   if(firstMount)mountProfile(data);
    else{
     const previous=active.wallet.earned;active.wallet.state=withHistory(data.wallet);
     if(active.wallet.earned>previous)active.wallet.message=`+${active.wallet.earned-previous} $lovari!`;
     syncStatus();
    }
-   $('child-pairing').hidden=true;$('profile-tools').hidden=role!=='parent';
-   try{if(role==='parent'&&sessionStorage.getItem('slovarium.openOral')===selected){sessionStorage.removeItem('slovarium.openOral');window.SlovariumUI?.open('settings-view');$('oral-check').scrollIntoView({behavior:'smooth'});}}catch{}
+   $('child-pairing').hidden=true;$('profile-tools').hidden=role!=='parent'||detailId!==selected;
+   if(role==='parent'){renderDetails();if(!detailId){$('oral-check').hidden=true;$('backup-tools').hidden=true;}if(firstSnapshot)window.SlovariumUI?.open(restoreOnly?'settings-view':'child-profile-view');firstSnapshot=false;}
+   try{if(role==='parent'&&sessionStorage.getItem('slovarium.openOral')===selected){sessionStorage.removeItem('slovarium.openOral');window.SlovariumUI?.open('child-profile-view');$('oral-check').scrollIntoView({behavior:'smooth'});}}catch{}
   },fail);
   if(role==='parent')devicesStop=F.onSnapshot(F.query(F.collection(db,'devices'),F.where('family','==',family),F.where('child','==',id)),snap=>{
+   if(token!==selectionToken)return;
    $('linked-devices').replaceChildren();
    for(const d of snap.docs){if(model.accessVersion(d.data())!==profileVersion)continue;const row=document.createElement('div'),text=document.createElement('span'),button=document.createElement('button');
     text.textContent=`Устройство ${d.id.slice(0,6)}…`;button.textContent='Отключить';button.className='secondary';
@@ -174,28 +192,30 @@ async function startCloud(){
     queue.results=cleanCourse({version:2,results:old.results}).results;
    }
   }catch{status('Очередь повреждена или хранилище недоступно. Не закрывайте страницу; новые результаты могут не сохраниться локально.');queueDurable=false;}
-  const wallet={state:withHistory(data.wallet),raw:'cloud',saved:false,blocked:false,message:'',get earned(){return model.earned(this.state);},get balance(){return model.balance(this.state);},reward:queueReward,
+  const wallet={state:withHistory(data.wallet),raw:'cloud',saved:false,blocked:false,message:'',get earned(){return model.earned(this.state);},get balance(){return model.balance(this.state);},reward(kind,id){if(active?.wallet!==this||this.blocked)return;queueReward(kind,id);},
    async exchange(expected){
     if(role!=='parent'||!active||active.wallet!==this||this.blocked||!navigator.onLine||queueCount())return false;
+    const ownerFamily=family,ownerChild=selected,expectedVersion=profileVersion;
     this.saved=false;repaint();
-    try{await F.runTransaction(db,async tx=>{const ref=childRef(family,selected),snap=await tx.get(ref);if(!snap.exists())throw Error('Профиль не найден');model.requireActive(snap.data(),profileVersion);const w=snap.data().wallet;
+    try{await F.runTransaction(db,async tx=>{const ref=childRef(ownerFamily,ownerChild),snap=await tx.get(ref);if(!snap.exists())throw Error('Профиль не найден');model.requireActive(snap.data(),expectedVersion);const w=snap.data().wallet;
       // Record the exchange event with authoritative server time in the same transaction.
       const next=model.exchange(w,expected,new Date().toISOString());
       tx.update(ref,{wallet:next,lastExchangeAt:F.serverTimestamp()});
-      tx.set(F.doc(db,'families',family,'children',selected,'exchanges',String(w.exchanges.length)),{amount:expected,at:F.serverTimestamp()});
+      tx.set(F.doc(db,'families',ownerFamily,'children',ownerChild,'exchanges',String(w.exchanges.length)),{amount:expected,at:F.serverTimestamp()});
      });this.message='Обмен сохранён. Достижения остались.';return true;
     }catch(e){this.message=friendly(e);return false;}finally{syncStatus();}
    }};
+  let owner;
   class OnlineProgress extends core.CourseProgress{
    constructor(){super({getItem:()=>JSON.stringify({version:2,results:queue.results}),setItem(){}});this.cloudReady=true;}
    persist(){this.saved=true;/* Selection stays in this session; results have their own documents. */}
    record(id,level,score){
-    if(!active||active.wallet.blocked)return;
+    if(active!==owner||!active||active.wallet.blocked)return;
     const before=JSON.stringify(this.results[id]);super.record(id,level,score);
     if(this.cloudReady&&JSON.stringify(this.results[id])!==before){queue.results[id]=JSON.parse(JSON.stringify(this.results[id]));persistQueue();syncStatus();void flush();}
    }
   }
-  const progress=new OnlineProgress();active={wallet,progress,role,userUid:auth.currentUser.uid};
+  const progress=new OnlineProgress();active={wallet,progress,role,userUid:auth.currentUser.uid};owner=active;
   core.mount(active);$('backup-export').disabled=false;document.querySelector('.wallet[aria-labelledby="wallet-title"]').hidden=false;
   profileListeners.push(F.onSnapshot(F.collection(db,'families',family,'children',selected,'results'),snap=>{
    for(const d of snap.docs){const cleaned=cleanCourse({version:2,results:{[d.id]:d.data()}}).results[d.id];if(cleaned)progress.results[d.id]=model.mergeResults(progress.results[d.id]||{},cleaned);}
@@ -210,10 +230,31 @@ async function startCloud(){
  }
  function participantButton(text,action){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=text;b.onclick=action;return b;}
  function askDelete(child){
-  closeEditors();deleteId=child.id;
-  $('participant-confirm-title').textContent='Удалить ребёнка навсегда?';
+  if(role!=='parent'||participantBusy)return;
+  closeEditors();deleteId=child.id;deleteName=child.name;deleteStage=1;
+  $('participant-confirm-title').textContent=child.deleting?'Продолжить удаление ребёнка?':'Удалить ребёнка навсегда?';
   $('participant-confirm-text').textContent=`Удалить «${child.name}» навсегда? Будут удалены профиль, прогресс, $lovari и история обменов. Устройства потеряют доступ. Восстановить данные через кабинет нельзя.`;
   $('participant-confirmation').hidden=false;$('participant-cancel').focus();
+ }
+ function renderDetails(){
+  const child=children.find(c=>c.id===detailId);
+  if(role!=='parent'||!child){$('profile-tools').hidden=true;return;}
+  if(deleteId===child.id&&deleteName!==child.name)closeEditors();
+  window.SlovariumUI?.detail?.({name:child.name,balance:model.balance(child.wallet),available:model.isActive(child)&&selected===child.id&&Boolean(active)});
+  $('child-profile-title').textContent=child.name;$('profile-name').textContent='Устройства и перенос прогресса';
+  $('child-profile-summary').replaceChildren();$('child-profile-actions').replaceChildren();
+  for(const text of [`Выучено слов: ${child.wallet.words.length}`,`Освоено предложений: ${child.wallet.sentences.length}`,`Баланс: ${model.balance(child.wallet)} $lovari`,`Всего заработано: ${model.earned(child.wallet)} $lovari`]){const p=document.createElement('p');p.textContent=text;$('child-profile-summary').append(p);}
+  const actions=$('child-profile-actions'),live=model.isActive(child)&&selected===child.id&&Boolean(active);
+  if(live){
+   actions.append(participantButton('Учиться',()=>window.SlovariumUI?.open('learning')));
+   actions.append(participantButton('Прогресс',()=>window.SlovariumUI?.open('progress-view')));
+   actions.append(participantButton('Кошелёк и обмен',()=>window.SlovariumUI?.open('wallet-view')));
+   actions.append(participantButton('Проверить знания',()=>{$('oral-check').scrollIntoView({behavior:'smooth'});}));
+   actions.append(participantButton('Изменить имя',()=>{closeEditors();editingId=child.id;$('participant-name').value=child.name;$('participant-editor').hidden=false;$('participant-name').focus();}));
+  }
+  const remove=participantButton(child.deleting?'Продолжить удаление':'Удалить ребёнка',()=>askDelete(child));remove.className+=' danger-link';actions.append(remove);
+  for(const button of actions.children)button.disabled=participantBusy;
+  $('profile-tools').hidden=!live;$('oral-check').hidden=!live;$('backup-tools').hidden=!live;
  }
  function renderChildren(){
   $('family-children').replaceChildren();$('archived-children').replaceChildren();$('deleting-children').replaceChildren();
@@ -222,26 +263,16 @@ async function startCloud(){
   $('archive-count').textContent=`(${archived.length})`;$('participants-archive').hidden=archived.length===0;
   $('deletions-panel').hidden=deleting.length===0;
   for(const child of children){
-   const row=document.createElement('article');row.className='family-child';
-   const h=document.createElement('h3');h.textContent=child.name;row.append(h);
-   const actions=document.createElement('div');actions.className='builder-actions';
-   if(child.deleting){
-    const note=document.createElement('p');note.textContent=deletionInProgress===child.id?'Удаляем данные…':'Удаление не завершено. Продолжите очистку.';row.append(note);
-    const resume=participantButton('Продолжить удаление',()=>deleteParticipant(child.id));resume.disabled=participantBusy;actions.append(resume);
-   }else{
-    for(const text of [`Выучено слов: ${child.wallet.words.length}`,`Освоено предложений: ${child.wallet.sentences.length}`,`Баланс: ${model.balance(child.wallet)} $lovari`,`Всего заработано: ${model.earned(child.wallet)} $lovari`]){const p=document.createElement('p');p.textContent=text;row.append(p);}
-    if(model.isActive(child)){
-     actions.append(participantButton(child.id===selected?'Открыт этот профиль':'Открыть профиль',()=>choose(child.id)));
-     actions.append(participantButton('Проверить знания',()=>{try{sessionStorage.setItem('slovarium.openOral',child.id);}catch{}if(active&&selected===child.id){window.SlovariumUI?.open('settings-view');$('oral-check').scrollIntoView({behavior:'smooth'});}else choose(child.id);}));
-     actions.append(participantButton('Изменить имя',()=>{closeEditors();editingId=child.id;$('participant-name').value=child.name;$('participant-editor').hidden=false;$('participant-name').focus();}));
-    }
-    const remove=participantButton('Удалить ребёнка',()=>askDelete(child));remove.className+=' danger-link';actions.append(remove);
-   }
-   for(const button of actions.children)button.disabled=participantBusy;
-   row.append(actions);$(child.deleting?'deleting-children':model.isActive(child)?'family-children':'archived-children').append(row);
+   const row=document.createElement('article');row.className='family-child family-child-compact';
+   const copy=document.createElement('div'),h=document.createElement('h3');h.textContent=child.name;copy.append(h);
+   const summary=document.createElement('p');summary.textContent=child.deleting?'Удаление не завершено':`Слова: ${child.wallet.words.length} · Предложения: ${child.wallet.sentences.length} · ${model.balance(child.wallet)} $lovari`;copy.append(summary);row.append(copy);
+   const open=participantButton('Открыть профиль',()=>choose(child.id));open.disabled=participantBusy;row.append(open);
+   $(child.deleting?'deleting-children':model.isActive(child)?'family-children':'archived-children').append(row);
   }
+  if(detailId&&detailId!==pendingProfileId&&!children.some(c=>c.id===detailId)){detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);window.SlovariumUI?.open('settings-view');}
+  renderDetails();
  }
- async function deleteParticipant(id){
+ async function deleteParticipant(id,confirmedName){
   if(participantBusy)return;
   if(role!=='parent'||!navigator.onLine){status('Для удаления нужны родитель и подключение к интернету');return;}
   const ownerFamily=family,ref=childRef(ownerFamily,id);
@@ -251,7 +282,7 @@ async function startCloud(){
    // Lock first: no new results, rewards, imports, exchanges or bindings can arrive after this transaction.
    await F.runTransaction(db,async tx=>{
     const snap=await tx.get(ref);if(!snap.exists())return;
-    const data=snap.data(),next=model.beginDeletion(data);
+    const data=snap.data();if(data.name!==confirmedName)throw Error('Имя ребёнка изменилось. Подтвердите удаление заново.');const next=model.beginDeletion(data);
     if(next!==data)tx.update(ref,{deleting:true,archived:true,accessVersion:next.accessVersion});
    });
    const cacheClean=purgeProfileCache(id);
@@ -286,11 +317,17 @@ async function startCloud(){
   }catch(e){
    status('Удаление не завершено. Продолжите удаление после восстановления связи. '+friendly(e));
   }finally{
-   participantBusy=false;deletionInProgress=null;$('participant-confirm').disabled=false;$('participant-cancel').disabled=false;renderChildren();
+   participantBusy=false;deletionInProgress=null;closeEditors();$('participant-cancel').disabled=false;renderChildren();
   }
  }
  $('participant-edit-cancel').onclick=closeEditors;$('participant-cancel').onclick=closeEditors;
- $('participant-confirm').onclick=()=>{const id=deleteId;if(!id)return;return deleteParticipant(id);};
+ $('participant-delete-next').onclick=()=>{
+  if(role!=='parent'||!deleteId||deleteStage!==1)return;
+  deleteStage=2;$('participant-delete-identity').hidden=false;$('participant-delete-next').hidden=true;$('participant-confirm').hidden=false;$('participant-confirm').disabled=true;$('participant-delete-name').focus();
+ };
+ function deletionConfirmed(){const child=children.find(c=>c.id===deleteId);return role==='parent'&&deleteStage===2&&detailId===deleteId&&child&&child.name===deleteName&&$('participant-delete-name').value===deleteName;}
+ $('participant-delete-name').oninput=()=>{$('participant-confirm').disabled=!deletionConfirmed();};
+ $('participant-confirm').onclick=()=>{const id=deleteId;if(!deletionConfirmed())return;return deleteParticipant(id,deleteName);};
  $('participant-rename-form').onsubmit=event=>{
   event.preventDefault();const id=editingId;if(!id||participantBusy)return;
   return guarded(async()=>{
@@ -307,7 +344,10 @@ async function startCloud(){
   loginBusy=true;window.SlovariumUI?.loginReady(false);status(parent?'Открываем вход через Google…':'Создаём код устройства…');
   try{await (parent?A.signInWithPopup(auth,new A.GoogleAuthProvider()):A.signInAnonymously(auth));}catch(e){fail(e);}finally{loginBusy=false;window.SlovariumUI?.loginReady(true);}
  }
- $('profile-cabinet-return').onclick=()=>{closeEditors();$('profile-tools').hidden=true;window.SlovariumUI?.open('settings-view');$('account-title').setAttribute('tabindex','-1');$('account-title').focus();$('account').scrollIntoView({block:'start'});};
+ window.SlovariumUI?.onView?.(view=>{
+  if(role==='parent'&&(view==='settings-view'||view==='welcome')){detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);$('profile-tools').hidden=true;$('oral-check').hidden=true;$('backup-tools').hidden=true;}
+ });
+ $('profile-cabinet-return').onclick=()=>{detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);$('profile-tools').hidden=true;$('oral-check').hidden=true;$('backup-tools').hidden=true;window.SlovariumUI?.open('settings-view');};
  $('parent-login').onclick=()=>login(true);
  $('child-login').onclick=()=>login(false);
  $('account-signout').onclick=()=>guarded(async()=>{
@@ -348,39 +388,44 @@ async function startCloud(){
   }finally{connectingChild=false;$('child-connect-submit').disabled=false;}
  });};
  $('device-pair-form').onsubmit=event=>{event.preventDefault();void guarded(async()=>{
+  const ownerChild=selected,ownerFamily=family,expectedVersion=profileVersion;
   const uid=$('device-input').value.trim();if(!/^[A-Za-z0-9_-]{20,128}$/.test(uid))throw Error('Проверьте код устройства');
   if(role!=='parent'||!selected||!navigator.onLine)throw Error('Выберите ребёнка и проверьте подключение к интернету');
-  await F.runTransaction(db,async tx=>{const ref=deviceRef(uid),snap=await tx.get(ref),profile=await tx.get(childRef(family,selected));if(!profile.exists())throw Error('Профиль не найден');model.requireActive(profile.data());if(!snap.exists())throw Error('Код не найден. На устройстве ребёнка нажмите «Я ребёнок».');
-   if((snap.data().family||snap.data().child)&&(snap.data().family!==family||snap.data().child!==selected))throw Error('Устройство уже подключено к другому профилю. Сначала отключите его.');
+  await F.runTransaction(db,async tx=>{const ref=deviceRef(uid),snap=await tx.get(ref),profile=await tx.get(childRef(ownerFamily,ownerChild));if(!profile.exists())throw Error('Профиль не найден');model.requireActive(profile.data(),expectedVersion);if(!snap.exists())throw Error('Код не найден. На устройстве ребёнка нажмите «Я ребёнок».');
+   if((snap.data().family||snap.data().child)&&(snap.data().family!==ownerFamily||snap.data().child!==ownerChild))throw Error('Устройство уже подключено к другому профилю. Сначала отключите его.');
    const version=model.accessVersion(profile.data());
-   tx.update(ref,{family,child:selected,accessVersion:version});
-  });$('device-input').value='';status('Устройство подключено к выбранному ребёнку.');
+   tx.update(ref,{family:ownerFamily,child:ownerChild,accessVersion:version});
+  });if(selected===ownerChild)$('device-input').value='';status('Устройство подключено к выбранному ребёнку.');
  });};
  $('import-file').onchange=()=>guarded(async()=>{
+  const ownerChild=selected,ownerFamily=family;
+  if(role!=='parent'||detailId!==selected)return;
   const file=$('import-file').files[0];if(!file)return;if(file.size>2000000)throw Error('Слишком большой файл');
   const value=JSON.parse(await file.text());
+  if(selected!==ownerChild||family!==ownerFamily||detailId!==ownerChild)return;
   const checker=new core.SlovariWallet({getItem:()=>JSON.stringify(value.wallet)});
   if(value.format!=='slovarium-backup'||value.version!==1||checker.blocked)throw Error('Файл не является корректной копией Словариума');
   const course=cleanCourse(value.course);importData={wallet:checker.state,course};
   const hashBytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({words:[...checker.state.words].sort(),sentences:[...checker.state.sentences].sort(),exchanges:checker.state.exchanges})));
+  if(selected!==ownerChild||family!==ownerFamily||detailId!==ownerChild){importData=null;return;}
   importData.hash=Array.from(new Uint8Array(hashBytes),b=>b.toString(16).padStart(2,'0')).join('');
-  $('import-summary').textContent=`Перенести в «${$('profile-name').textContent}»: ${checker.state.words.length} слов, ${checker.state.sentences.length} предложений, ${checker.balance} $lovari, ${checker.state.exchanges.length} обменов? Копия останется в исходном файле.`;
+  $('import-summary').textContent=`Перенести в «${children.find(c=>c.id===ownerChild)?.name||'ребёнок'}»: ${checker.state.words.length} слов, ${checker.state.sentences.length} предложений, ${checker.balance} $lovari, ${checker.state.exchanges.length} обменов? Копия останется в исходном файле.`;
   $('import-preview').hidden=false;
  });
  $('import-cancel').onclick=()=>{importData=null;$('import-preview').hidden=true;$('import-file').value='';};
  $('import-confirm').onclick=()=>guarded(async()=>{
   if(!importData||role!=='parent'||!selected||!navigator.onLine)throw Error('Для переноса нужен родитель и подключение к интернету');
-  const data=importData,ref=childRef(family,selected),marker=F.doc(db,'families',family,'imports',data.hash);
+  const ownerFamily=family,ownerChild=selected,expectedVersion=profileVersion,data=importData,ref=childRef(ownerFamily,ownerChild),marker=F.doc(db,'families',ownerFamily,'imports',data.hash);
   download({format:'slovarium-backup',version:1,...data});
   await F.runTransaction(db,async tx=>{
    const [snap,old]=await Promise.all([tx.get(ref),tx.get(marker)]);
    if(old.exists())throw Error('Эта копия уже перенесена в семью. Повторное начисление запрещено.');
    if(!snap.exists())throw Error('Профиль не найден');
-   model.requireActive(snap.data(),profileVersion);
+   model.requireActive(snap.data(),expectedVersion);
    const w=snap.data().wallet;
    if(w.words.length||w.sentences.length||w.exchanges.length||snap.data().activity)throw Error('Профиль уже содержит прогресс. Выберите пустой профиль; автоматическое объединение отключено.');
-   tx.update(ref,{wallet:data.wallet,imported:true,activity:true});tx.set(marker,{child:selected,createdAt:F.serverTimestamp()});
-   for(const [id,result] of Object.entries(data.course.results))tx.set(resultRef(family,selected,id),result);
+   tx.update(ref,{wallet:data.wallet,imported:true,activity:true});tx.set(marker,{child:ownerChild,createdAt:F.serverTimestamp()});
+   for(const [id,result] of Object.entries(data.course.results))tx.set(resultRef(ownerFamily,ownerChild,id),result);
 
   });importData=null;$('import-preview').hidden=true;$('import-file').value='';status('Перенос завершён.');
  });
@@ -398,10 +443,10 @@ async function startCloud(){
    window.SlovariumUI?.parent(role==='parent'?(user.displayName?.trim()||'Родитель'):null);
    window.SlovariumUI?.profile(role==='parent'?'Родитель':'Подключение');
    if(role==='parent'){
-    family=user.uid;$('parent-dashboard').hidden=false;status('Загружаем семью…');
+    family=user.uid;$('account-title').textContent='Кабинет родителя';$('oral-check').hidden=true;$('child-profile-content').append($('oral-check'),$('backup-tools'));$('backup-tools').hidden=true;$('parent-dashboard').hidden=false;status('Загружаем семью…');
     stops.push(F.onSnapshot(kidsRef(family),snap=>{children=snap.docs.map(d=>({id:d.id,...d.data()}));renderChildren();
      if(!selected){let previous;try{previous=sessionStorage.getItem('slovarium.selectedChild');}catch{}
-      if(previous&&children.some(c=>c.id===previous&&model.isActive(c)))choose(previous);
+      if(previous&&children.some(c=>c.id===previous&&model.isActive(c)))choose(previous,0,true);
       else {let notice;try{notice=sessionStorage.getItem('slovarium.participantNotice');sessionStorage.removeItem('slovarium.participantNotice');sessionStorage.removeItem('slovarium.selectedChild');}catch{}status(notice||(children.some(model.isActive)?'Выберите профиль ребёнка':'Добавьте первого ребёнка'));}
      }
     },fail));

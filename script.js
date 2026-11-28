@@ -4637,6 +4637,9 @@ function wordWithIPA(variant) {
 }
 
 function createSentenceHelp(doc, view, sentence, tip) {
+  const listeners=[];
+  function listen(target,event,fn,options){target.addEventListener(event,fn,options);if(target===doc||target===view||target===tip)listeners.push(()=>target.removeEventListener?.(event,fn,options));}
+
   let active=null, hovered=null, overTip=false, focused=null, pinned=false, timer=null;
   function cancelClose() { view.clearTimeout(timer); }
   function close() {
@@ -4690,28 +4693,28 @@ function createSentenceHelp(doc, view, sentence, tip) {
       const button=doc.createElement('button');
       button.type='button';button.className='sentence-word';button.lang='en';button.textContent=part.text;
       let pointerKind=null, wasOpen=false;
-      button.addEventListener('pointerdown',event=>{
+      listen(button,'pointerdown',event=>{
         pointerKind=event.pointerType;wasOpen=active===button && !tip.hidden;
       });
-      button.addEventListener('pointerenter',event=>{
+      listen(button,'pointerenter',event=>{
         if(event.pointerType==='touch') return;
         show(button,part.hint);hovered=button;cancelClose();
       });
-      button.addEventListener('pointerleave',event=>{
+      listen(button,'pointerleave',event=>{
         if(event.pointerType==='touch') return;
         if(hovered===button) hovered=null;
         scheduleClose();
       });
-      button.addEventListener('focus',()=>{
+      listen(button,'focus',()=>{
         if(pointerKind) return;
         show(button,part.hint);focused=button;
       });
-      button.addEventListener('blur',()=>{
+      listen(button,'blur',()=>{
         pointerKind=null;
         if(focused===button) focused=null;
         scheduleClose();
       });
-      button.addEventListener('click',()=>{
+      listen(button,'click',()=>{
         // Pointerdown runs before focus: touch focus must not toggle the first tap closed.
         if(pointerKind==='touch' || pointerKind==='pen') {
           if(wasOpen) close();
@@ -4723,23 +4726,23 @@ function createSentenceHelp(doc, view, sentence, tip) {
       sentence.append(button);
     }
   }
-  tip.addEventListener('pointerenter',event=>{
+  listen(tip,'pointerenter',event=>{
     if(event.pointerType==='touch') return;
     overTip=true;cancelClose();
   });
-  tip.addEventListener('pointerleave',event=>{
+  listen(tip,'pointerleave',event=>{
     if(event.pointerType==='touch') return;
     overTip=false;scheduleClose();
   });
-  doc.addEventListener('pointerdown',event=>{
+  listen(doc,'pointerdown',event=>{
     if(active && !active.contains(event.target) && !tip.contains(event.target)) close();
   });
-  doc.addEventListener('keydown',event=>{
+  listen(doc,'keydown',event=>{
     if(event.key==='Escape' && active) {event.preventDefault();close();}
   });
-  view.addEventListener('resize',position);
-  view.addEventListener('scroll',position,true);
-  return {render,close};
+  listen(view,'resize',position);
+  listen(view,'scroll',position,true);
+  return {render,close,destroy(){close();listeners.forEach(stop=>stop());}};
 }
 
 // Decorative, local artwork. No user-provided strings are inserted into SVG markup.
@@ -4771,19 +4774,21 @@ function topicIllustration(id) {
 
 // View navigation never changes the active exercise or writes learning data.
 function initializeInterface() {
-  const $=id=>document.getElementById(id),views=['welcome','learning','progress-view','wallet-view','settings-view'];
-  let current=null,returnView='learning',opener=null,ready=false,authenticated=false,parentName=null,childName='Локально',topics=()=>{};
+  const $=id=>document.getElementById(id),views=['welcome','learning','progress-view','wallet-view','settings-view','child-profile-view'];
+  let current=null,returnView='learning',opener=null,ready=false,authenticated=false,parentName=null,childName='Локально',detail=null,viewChanged=()=>{},topics=()=>{};
   function renderHeader(){
     const cabinet=Boolean(parentName)&&['settings-view','welcome'].includes(current);
-    const label=cabinet?parentName:childName;
+    const label=cabinet?parentName:(current==='child-profile-view'&&detail?detail.name:childName);
     $('profile-button').textContent=label;$('profile-button').title=label;
-    $('app-nav').hidden=!ready||current==='welcome'||cabinet;
+    $('app-nav').hidden=!ready||current==='welcome'||cabinet||(current==='child-profile-view'&&!detail?.available);
     $('header-balance').hidden=!ready||current==='welcome'||cabinet;
-    $('parent-cabinet-return').hidden=!parentName||cabinet;
+    $('parent-cabinet-return').hidden=!parentName||cabinet||current==='child-profile-view';
+    if(current==='child-profile-view'&&detail){$('balance-short').textContent=`${detail.balance} $lovari`;$('header-balance').disabled=!ready||!detail.available;}
   }
   function open(view,trigger) {
-    if(!views.includes(view)||(!ready&&!['settings-view','welcome'].includes(view)))return;
-    if(current===view)return;
+    if(!views.includes(view)||(!ready&&!['settings-view','welcome','child-profile-view'].includes(view)))return;
+    if(view==='child-profile-view'&&(!parentName||!detail))return;
+    if(current===view){viewChanged(view);renderHeader();return;}
     if(view!=='learning'&&current==='learning'){returnView=current;opener=trigger||document.activeElement;}
     if(view==='learning')returnView='learning';
     if(current==='wallet-view') {
@@ -4792,6 +4797,7 @@ function initializeInterface() {
     }
     $('word-tooltip').hidden=true;
     current=view;
+    viewChanged(view);
     renderHeader();
     for(const id of views)$(id).hidden=id!==view;
     $('welcome-nav').hidden=view!=='welcome';
@@ -4802,7 +4808,7 @@ function initializeInterface() {
     for(const button of document.querySelectorAll('[data-view]')) {
       if(button.dataset.view===view)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
     }
-    const heading=view==='welcome'?$('welcome-title'):view==='learning'?($('home').hidden?$('topic'):$('home-title')):$(view==='progress-view'?'progress-title':view==='wallet-view'?'wallet-view-title':'settings-title');
+    const heading=view==='welcome'?$('welcome-title'):view==='learning'?($('home').hidden?$('topic'):$('home-title')):$(view==='progress-view'?'progress-title':view==='wallet-view'?'wallet-view-title':view==='child-profile-view'?'child-profile-title':'settings-title');
     heading.setAttribute('tabindex','-1');heading.focus();
   }
   for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>{
@@ -4832,7 +4838,7 @@ function initializeInterface() {
   $('local-settings-note').hidden=Boolean(window.SlovariumOnline);
   open(window.SlovariumOnline?'welcome':'learning');
   mirrorStatus();
-  return {open,onTopics(fn){topics=fn;},setReady(value=true){
+  return {open,onView(fn){viewChanged=fn;},detail(value){detail=value;renderHeader();},refreshHeader:renderHeader,onTopics(fn){topics=fn;},setReady(value=true){
       ready=value;for(const id of ['nav-learning','nav-progress','header-balance'])$(id).disabled=!value;
       renderHeader();
     },authenticated(value){
@@ -4844,6 +4850,8 @@ function initializeInterface() {
 }
 
 function mount(online=null) {
+  const listeners=[];
+  function listen(target,event,fn){target.addEventListener(event,fn);if(target.id)listeners.push(()=>target.removeEventListener?.(event,fn));}
   const game=new WordGame(Math.random,(kind,id)=>wallet.reward(kind,id));
   const $=id=>document.getElementById(id);
   const sentenceHelp=createSentenceHelp(document,window,$('sentence-text'),$('word-tooltip'));
@@ -4873,21 +4881,22 @@ function mount(online=null) {
       $('exchange-history').append(li);
     }
     $('exchange-empty').hidden=wallet.state.exchanges.length>0;
+    ui?.refreshHeader?.();
   }
   function cancelExchange() {pendingExchange=null;$('exchange-confirmation').hidden=true;}
-  $('exchange-toggle').addEventListener('click',()=>{
+  listen($('exchange-toggle'),'click',()=>{
     const open=$('exchange-panel').hidden;
     $('exchange-panel').hidden=!open;$('exchange-toggle').setAttribute('aria-expanded',String(open));cancelExchange();renderWallet();
   });
-  $('exchange-start').addEventListener('click',()=>{
+  listen($('exchange-start'),'click',()=>{
     if(wallet.blocked||!wallet.saved||wallet.balance===0||online?.role==='child')return;
     pendingExchange=wallet.balance;
     $('exchange-confirm-text').textContent=`Обменять ${pendingExchange} $lovari? Баланс станет нулевым. Достижения сохранятся. Деньги передаёт родитель.`;
     $('exchange-confirm').textContent=`Обменять ${pendingExchange} $lovari`;
     $('exchange-confirmation').hidden=false;$('exchange-cancel').focus();
   });
-  $('exchange-cancel').addEventListener('click',()=>{cancelExchange();$('exchange-start').focus();});
-  $('exchange-confirm').addEventListener('click',async()=>{const amount=pendingExchange;cancelExchange();$('exchange-confirm').disabled=true;try{const operation=wallet.exchange(amount);if(operation?.then)await operation;}finally{$('exchange-confirm').disabled=false;renderWallet();$('exchange-toggle').focus();}});
+  listen($('exchange-cancel'),'click',()=>{cancelExchange();$('exchange-start').focus();});
+  listen($('exchange-confirm'),'click',async()=>{const amount=pendingExchange;cancelExchange();$('exchange-confirm').disabled=true;try{const operation=wallet.exchange(amount);if(operation?.then)await operation;}finally{$('exchange-confirm').disabled=false;renderWallet();$('exchange-toggle').focus();}});
   const progress=online?.progress || new CourseProgress(storage);
   let selectedModule=progress.selection.module,screen=progress.selection.screen || 'catalog';
   function start(id) {
@@ -4932,7 +4941,7 @@ function mount(online=null) {
       results.append(section);
     }
   }
-  $('continue-course').addEventListener('click',()=>{
+  listen($('continue-course'),'click',()=>{
     const selection=progress.selection;
     if(courseLessons[selection.lesson])start(selection.lesson);
     else if(selection.module){selectedModule=selection.module;showLessons();}
@@ -4974,7 +4983,7 @@ function mount(online=null) {
       const done=document.createElement('span');done.className='topic-progress';done.textContent=item.ready?`Пройдено ${passed} из ${item.lessons} уроков`:'Готовится';
       const bar=document.createElement('progress');bar.max=item.lessons;bar.value=passed;bar.setAttribute('aria-label',`Пройдено уроков: ${passed} из ${item.lessons}`);done.replaceChildren(bar,document.createTextNode(done.textContent));
       tile.append(top,art,title,caption,note,done);
-      if(item.ready)tile.addEventListener('click',()=>{selectedModule=item.id;showLessons();});
+      if(item.ready)listen(tile,'click',()=>{selectedModule=item.id;showLessons();});
       $('modules').append(tile);
     }
     for(const lesson of Object.values(courseLessons).filter(l=>l.module===selectedModule)) {
@@ -5001,7 +5010,7 @@ function mount(online=null) {
         threshold.textContent=result.cards.firstTryCorrect>=Math.ceil(.8*lesson.entries.length*2)?'Порог 80% достигнут. Новый запуск требует пройти карточки заново.':'Порог 80% пока не достигнут.';
         button.append(threshold);
       }
-      button.addEventListener('click',()=>start(lesson.id));$('course-lessons').append(button);
+      listen(button,'click',()=>start(lesson.id));$('course-lessons').append(button);
     }
   }
   function renderBuilder() {
@@ -5019,7 +5028,7 @@ function mount(online=null) {
         const button=document.createElement('button');button.className='word-tile';button.type='button';button.lang=lang;
         button.textContent=sg.tiles[id].text;button.dataset.token=String(id);
         button.setAttribute('aria-label',`${selected?'Вернуть слово':'Добавить слово'}: ${sg.tiles[id].text}`);
-        button.addEventListener('click',()=>{
+        listen(button,'click',()=>{
           sentenceHelp.close();if(selected) sg.remove(id);else sg.pick(id);renderBuilder();
           const remaining=$(selected?'translation-answer':'translation-pool').children;
           if(remaining.length) remaining[Math.min(position,remaining.length-1)].focus();
@@ -5084,7 +5093,7 @@ function mount(online=null) {
       $('sentence-options').replaceChildren(); $('sentence-options').hidden=!awaiting;
       if(awaiting) for(const value of sg.options) {
         const button=document.createElement('button');button.className='option';button.lang=task.lang;button.textContent=value;
-        button.addEventListener('click',()=>{if(!wallet.blocked)wallet.message='';sg.answer(value);render();});$('sentence-options').append(button);
+        listen(button,'click',()=>{if(!wallet.blocked)wallet.message='';sg.answer(value);render();});$('sentence-options').append(button);
       }
       $('sentence-advance').hidden=!['feedback','translated'].includes(sg.phase);
       $('sentence-advance').textContent=sg.phase==='translated'?'Следующее предложение':'Повторить';
@@ -5116,33 +5125,34 @@ function mount(online=null) {
     const options=$('options');options.replaceChildren();options.hidden=!awaitingAnswer;
     if(awaitingAnswer) for(const item of game.options) {
       const button=document.createElement('button');button.className='option';button.lang=game.target;button.textContent=wordWithIPA(item[game.target]);
-      button.addEventListener('click',()=>{if(!wallet.blocked)wallet.message='';game.answer(item.id);render();});options.append(button);
+      listen(button,'click',()=>{if(!wallet.blocked)wallet.message='';game.answer(item.id);render();});options.append(button);
     }
     $('advance').hidden=awaitingAnswer;
     $('prompt').hidden=!awaitingAnswer;
     $('advance').textContent=!game.correct?'Повторить':'Следующее слово →';
     if(awaitingAnswer) $('prompt').focus();else $('advance').focus();
   }
-  $('back-home').addEventListener('click',showLessons);
-  $('complete-home').addEventListener('click',showLessons);
-  $('restart').addEventListener('click',()=>{
+  listen($('back-home'),'click',showLessons);
+  listen($('complete-home'),'click',showLessons);
+  listen($('restart'),'click',()=>{
     if(game.phase==='sentence-complete') { game.startSentences();render(); } else start(game.category);
   });
-  $('to-sentences').addEventListener('click',()=>{game.startSentences();render();});
-  $('translation-clear').addEventListener('click',()=>{game.sentenceGame?.clear();sentenceHelp.close();renderBuilder();$('translation-title').focus();});
-  $('translation-check').addEventListener('click',()=>{
+  listen($('to-sentences'),'click',()=>{game.startSentences();render();});
+  listen($('translation-clear'),'click',()=>{game.sentenceGame?.clear();sentenceHelp.close();renderBuilder();$('translation-title').focus();});
+  listen($('translation-check'),'click',()=>{
     if(!wallet.blocked)wallet.message='';
     game.sentenceGame?.check();sentenceHelp.close();
     if(game.sentenceGame?.phase==='translated') render();else {renderWallet();renderBuilder();$('translation-title').focus();}
   });
-  $('sentence-advance').addEventListener('click',()=>{
+  listen($('sentence-advance'),'click',()=>{
     if(!wallet.blocked)wallet.message='';
     game.sentenceGame.advance();
     if(game.sentenceGame.phase==='complete') game.phase='sentence-complete';
     render();
   });
-  $('advance').addEventListener('click',()=>{if(!wallet.blocked)wallet.message='';game.advance();render();});
-  $('back-modules').addEventListener('click',showTopics);
+  listen($('advance'),'click',()=>{if(!wallet.blocked)wallet.message='';game.advance();render();});
+  listen($('back-modules'),'click',showTopics);
+  if(online)online.dispose=()=>{sentenceHelp.destroy?.();listeners.forEach(stop=>stop());};
   if(online)online.repaint=()=>{renderWallet();renderCatalog();};
   if(screen==='lesson' && progress.selection.lesson) start(progress.selection.lesson);else render();
 }
