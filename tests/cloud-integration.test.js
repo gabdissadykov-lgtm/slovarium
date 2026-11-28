@@ -8,6 +8,34 @@ class Element{
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle(){for(let i=0;i<12;i++)await tick();}
+
+test('paid hints: two devices, duplicate/lost acknowledgement, F5, offline, balance race and parent migration',async()=>{
+ const back=backend(),family='hint-parent',child='hint-child',uid='hint-device-123456789012345',path=`families/${family}/children/${child}`;
+ let w=model.emptyWallet();for(const e of core.courseEntries.slice(0,3))w=model.addReward(w,'words',e.id);
+ back.docs.set(path,{name:'Әлия',wallet:w,activity:true});back.docs.set('devices/'+uid,{family,child});
+ const first=await session(back,{uid,isAnonymous:true}),second=await session(back,{uid,isAnonymous:true}),entry=core.courseEntries[0].id;
+ await Promise.all([first.active.wallet.buyHint(entry,'kk',1),second.active.wallet.buyHint(entry,'kk',1)]);await settle();
+ assert.equal(first.active.wallet.balance,25);assert.equal(second.active.wallet.balance,25);assert.equal(Object.keys(back.docs.get(path).wallet.hints).length,1);
+ back.controls.loseNextAck=true;assert.equal(await first.active.wallet.buyHint(entry,'kk',2),false);await settle();assert.equal(first.active.wallet.balance,20);
+ const fresh=await session(back,{uid,isAnonymous:true},{local:first.local});assert.equal(fresh.active.wallet.balance,20);
+ assert.equal(await fresh.active.wallet.buyHint(entry,'kk',2),true);await settle();assert.equal(fresh.active.wallet.balance,20);
+ fresh.context.navigator.onLine=false;assert.equal(await fresh.active.wallet.buyHint(entry,'kk',3),false);assert.equal(back.docs.get(path).wallet.spent,10);
+ fresh.context.navigator.onLine=true;
+ const ss=storage();ss.setItem('slovarium.selectedChild',child);const parent=await session(back,{uid:family,isAnonymous:false},{session:ss});
+ assert.equal(await parent.active.wallet.buyHint(entry,'kk',3),false);
+ const race=await Promise.all([fresh.active.wallet.buyHint(entry,'kk',3),parent.active.wallet.exchange(20)]);await settle();
+ assert.equal(race[0],true);assert.equal(race[1],false);assert.equal(fresh.active.wallet.balance,15);
+ assert.equal(await parent.active.wallet.exchange(15),true);await settle();assert.equal(fresh.active.wallet.balance,0);
+ assert.equal(await fresh.active.wallet.buyHint(entry,'kk',4),false);assert.equal(fresh.active.wallet.balance,0);
+ assert.equal(await fresh.active.wallet.buyHint(entry,'kk',3),true);assert.equal(fresh.active.wallet.balance,0);
+ const legacy=model.exchange(w,30,'2026-11-27T10:00:00.000Z');legacy.words.push(core.courseEntries[3].id);
+ back.docs.set(path,{name:'Әлия',wallet:legacy,activity:true});back.notify();await settle();
+ assert.equal(await fresh.active.wallet.buyHint(entry,'ru',1),false);assert.match(fresh.active.wallet.message,/родител/);
+ const reopened=await session(back,{uid:family,isAnonymous:false},{session:ss});await settle();assert.equal(back.docs.get(path).wallet.version,2);
+ assert.equal(await fresh.active.wallet.buyHint(entry,'ru',1),true);await settle();assert.equal(reopened.active.wallet.balance,5);
+ back.docs.set(path,{...back.docs.get(path),archived:true,accessVersion:1});back.notify();await settle();
+ assert.equal(await fresh.active.wallet.buyHint(entry,'kk',4),false);
+});
 function storage(){const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k),get length(){return map.size;},key:i=>[...map.keys()][i]??null,map};}
 function backend(){
  const docs=new Map(),listeners=[],controls={batch:0,failBatchAt:0,onQuery:null};let serial=Promise.resolve(),nextDoc=0;
@@ -119,7 +147,7 @@ test('deletion: rename and cancel preserve data; permanent delete cleans all pag
  const parent=await session(back,{uid:family,isAnonymous:false},{local}),kid=await session(back,{uid,isAnonymous:true});
  kid.context.navigator.onLine=false;kid.active.wallet.reward('sentences',core.courseEntries[0].id);
  await openChild(parent,'Алия');buttonIn(parent.elements['child-profile-actions'],'Изменить имя').click();parent.elements['participant-name'].value='  Әлия  ';
- await parent.elements['participant-rename-form'].onsubmit({preventDefault(){}});await settle();assert.equal(back.docs.get(path).name,'Әлия');assert.deepEqual(back.docs.get(path).wallet,wallet);
+ await parent.elements['participant-rename-form'].onsubmit({preventDefault(){}});await settle();assert.equal(back.docs.get(path).name,'Әлия');assert.deepEqual(back.docs.get(path).wallet,model.migrateWallet(wallet));
  buttonIn(parent.elements['child-profile-actions'],'Удалить ребёнка').click();parent.elements['participant-cancel'].click();await parent.elements['participant-confirm'].click();assert.ok(back.docs.has(path));
  buttonIn(parent.elements['child-profile-actions'],'Удалить ребёнка').click();await confirmDeletion(parent,'Әлия');
  assert.equal(back.docs.has(path),false);assert.ok(![...back.docs.keys()].some(k=>k.startsWith(path+'/')));
@@ -190,7 +218,7 @@ test('oral: two independent sessions, invitation, readiness, duplicate grade, F5
  for(let i=2;i<10;i++)await click(parent,i===2?'С подсказкой':'Верно');
  assert.equal(state().status,'completed');const saved=[...back.docs.entries()].find(([p])=>p.includes('/checks/'))[1];assert.equal(saved.grades.length,10);
  assert.ok(e['check-report'].children.some(e=>e.textContent==='С подсказкой: 1'));
- assert.deepEqual(back.docs.get(`families/${family}/children/${child}`).wallet,model.emptyWallet());
+ assert.deepEqual(back.docs.get(`families/${family}/children/${child}`).wallet,model.migrateWallet(model.emptyWallet()));
  await openChild(parent,'Әлия');buttonIn(e['child-profile-actions'],'Удалить ребёнка').click();await confirmDeletion(parent,'Әлия');
  assert.ok(![...back.docs.keys()].some(p=>p.startsWith(`families/${family}/children/${child}/`)));
 });

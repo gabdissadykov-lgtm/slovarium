@@ -4416,16 +4416,33 @@ class SlovariWallet {
   valid(value) {
     const unique=(items,known)=>Array.isArray(items)&&items.every(id=>typeof id==='string'&&known.has(id))&&new Set(items).size===items.length;
     const words=new Set(courseEntries.map(e=>e.id)),sentences=new Set(assemblyTasks.map(t=>t.id));
-    if(!value||value.version!==1||!unique(value.words,words)||!unique(value.sentences,sentences)||!Array.isArray(value.exchanges)) return false;
+    if(!value||![1,2].includes(value.version)||!unique(value.words,words)||!unique(value.sentences,sentences)||!Array.isArray(value.exchanges)) return false;
     let spent=0;
     for(const item of value.exchanges) {
-      if(!item||!Number.isSafeInteger(item.amount)||item.amount<=0||item.amount%10!==0||typeof item.date!=='string'||!Number.isFinite(Date.parse(item.date)))return false;
+      if(!item||!Number.isSafeInteger(item.amount)||item.amount<=0||item.amount%(value.version===2?5:10)!==0||typeof item.date!=='string'||!Number.isFinite(Date.parse(item.date)))return false;
       spent+=item.amount;
+    }
+    if(value.version===2){
+      if(!value.hints||typeof value.hints!=='object'||Array.isArray(value.hints)||typeof value.lastHint!=='string'||!Number.isSafeInteger(value.spent))return false;
+      for(const [key,h]of Object.entries(value.hints)){
+        const task=assemblyTasks.find(t=>t.id===h?.entry);
+        if(!task||!['kk','ru'].includes(h.lang)||!Number.isInteger(h.position)||h.position<0||h.position>=sentenceWords(task.translations[h.lang].text).length||key!==`${h.entry}_${h.lang}_${h.position}`||Object.keys(h).some(k=>!['entry','lang','position'].includes(k)))return false;
+      }
+      if(Object.keys(value.hints).length? !Object.hasOwn(value.hints,value.lastHint):value.lastHint!=='')return false;
+      spent+=Object.keys(value.hints).length*5;if(value.spent!==spent)return false;
     }
     return Number.isSafeInteger(spent)&&spent<=value.words.length*10+value.sentences.length*20;
   }
   get earned() {return this.state.words.length*10+this.state.sentences.length*20;}
-  get balance() {return this.earned-this.state.exchanges.reduce((sum,e)=>sum+e.amount,0);}
+  get balance() {return this.earned-(this.state.version===2?this.state.spent:this.state.exchanges.reduce((sum,e)=>sum+e.amount,0));}
+  buyHint(entry,lang,position) {
+    if(this.blocked)return false;
+    const task=assemblyTasks.find(t=>t.id===entry);
+    if(!task||!['kk','ru'].includes(lang)||!Number.isInteger(position)||position<0||position>=sentenceWords(task.translations[lang].text).length)return false;
+    const model=typeof module!=='undefined'&&module.exports?require('./cloud-model.js'):window.SlovariumCloudModel;
+    try {const next=model.buyHint(this.state,entry,lang,position);if(next===this.state)return true;return this.commit(next);}
+    catch(e){this.message=e.message;return false;}
+  }
   commit(next) {
     if(this.blocked)return false;
     try {
@@ -4451,7 +4468,7 @@ class SlovariWallet {
   }
   exchange(expectedBalance) {
     if(this.blocked||!this.saved||this.balance<=0||expectedBalance!==this.balance)return false;
-    const next={...this.state,exchanges:[...this.state.exchanges,{date:new Date().toISOString(),amount:this.balance}]};
+    const next={...this.state,...(this.state.version===2?{spent:this.state.spent+this.balance}:{}),exchanges:[...this.state.exchanges,{date:new Date().toISOString(),amount:this.balance}]};
     if(!this.commit(next))return false;
     this.message='Обмен сохранён. Учебные достижения остались.';return true;
   }
@@ -4567,14 +4584,14 @@ function sentenceSignature(lesson) {
 }
 class SentenceGame {
   constructor(tasks,random=Math.random,onReward=()=>{}) {
-    this.onReward=onReward;this.random=random;this.index=0;this.firstTryCorrect=0;this.englishFirstTry=0;this.translationFirstTry=0;this.errors=0;
+    this.onReward=onReward;this.random=random;this.index=0;this.firstTryCorrect=0;this.englishFirstTry=0;this.translationFirstTry=0;this.errors=0;this.independentTranslations=0;this.assistedTranslations=0;this.revealedTranslations=0;
     // The quota is exact per run; retries reuse the already assigned language.
     const langs=shuffle(Array.from({length:tasks.length},(_,i)=>i<tasks.length-2?'kk':'ru'),random);
     this.deck=shuffle(tasks,random).map((task,i)=>({...task,translationLang:langs[i]}));this.newTask();
   }
   get task() {return this.deck[this.index];}
   get translation() {return this.task.translations[this.task.translationLang];}
-  newTask() {this.taskErrors=0;this.translationErrors=0;this.selected=[];this.tiles=[];this.lastChecked=null;this.message='';this.prepare();}
+  newTask() {this.taskErrors=0;this.translationErrors=0;this.selected=[];this.tiles=[];this.locked=[];this.assisted=false;this.revealed=false;this.lastChecked=null;this.message='';this.prepare();}
   prepare() {this.options=shuffle(this.task.choices,this.random);this.phase='question';this.correct=null;}
   answer(value) {
     if(this.phase!=='question' || !this.options.includes(value)) return;
@@ -4596,27 +4613,51 @@ class SentenceGame {
   }
   pick(id) {
     if(this.phase!=='translation' || !this.pool.includes(id)) return;
-    this.pool=this.pool.filter(item=>item!==id);this.selected.push(id);this.edited();
+    this.pool=this.pool.filter(item=>item!==id);const slot=this.selected.indexOf(null);if(slot<0)this.selected.push(id);else this.selected[slot]=id;this.edited();
   }
   remove(id) {
-    if(this.phase!=='translation' || !this.selected.includes(id)) return;
-    this.selected=this.selected.filter(item=>item!==id);this.pool.push(id);this.edited();
+    if(this.phase!=='translation' || !this.selected.includes(id)||this.locked.includes(id)) return;
+    if(this.locked.length)this.selected[this.selected.indexOf(id)]=null;else this.selected=this.selected.filter(item=>item!==id);this.pool.push(id);this.edited();
   }
   clear() {
     if(this.phase!=='translation' || !this.selected.length) return;
-    this.pool.push(...this.selected);this.selected=[];this.edited();
+    if(this.locked.length){this.selected=this.tiles.map(t=>this.locked.includes(t.id)?t.id:null);this.pool=shuffle(this.tiles.filter(t=>!this.locked.includes(t.id)).map(t=>t.id),this.random);}
+    else {this.pool.push(...this.selected);this.selected=[];}this.lastChecked=null;this.edited();
   }
   edited() {this.message='';this.correct=null;}
-  get assembled() {return this.selected.map(id=>this.tiles[id].text).join(' ');}
-  get canCheck() {return this.phase==='translation' && this.selected.length===this.tiles.length && wordKey(this.assembled)!==this.lastChecked;}
+  get assembled() {return this.selected.map(id=>id===null?'':this.tiles[id].text).join(' ');}
+  get canCheck() {return this.phase==='translation' && this.selected.length===this.tiles.length && !this.selected.includes(null) && wordKey(this.assembled)!==this.lastChecked;}
+  get hintPosition(){return this.phase==='translation'&&this.translationErrors>=3&&this.tiles.length-this.locked.length>=2?this.tiles.findIndex(t=>!this.locked.includes(t.id)):-1;}
+  lockPositions(positions,allowReveal=true){
+    if(this.phase!=='translation')return;
+    const added=positions.filter(p=>Number.isInteger(p)&&p>=0&&p<this.tiles.length&&!this.locked.includes(p));
+    if(!added.length)return;
+    this.assisted=true;this.locked=[...new Set([...this.locked,...added])];this.clear();this.lastChecked=null;
+    this.message='Закреплённые слова уже на месте. Собери показанный вариант перевода.';
+    // Indistinguishable remaining tokens also form an unavoidable full answer.
+    const remaining=this.tiles.filter(t=>!this.locked.includes(t.id));
+    if(allowReveal&&(remaining.length<=1||new Set(remaining.map(t=>wordKey(t.text))).size<=1))this.reveal();
+  }
+  restoreHints(hints){if(this.phase==='translation'&&this.translationErrors>=3)this.lockPositions(Object.values(hints||{}).filter(h=>h.entry===this.task.id&&h.lang===this.task.translationLang).map(h=>h.position),false);}
+  reveal(){
+    if(this.phase!=='translation')return;
+    this.assisted=true;this.revealed=true;this.revealedTranslations++;this.completedText=this.translation.text;this.phase='translated';this.message='Вот правильный перевод. Продолжай — это предложение можно повторить позже.';
+  }
   check() {
     if(!this.canCheck) return;
     const value=wordKey(this.assembled);this.lastChecked=value;
-    const match=this.translation.variants.find(v=>wordKey(v)===value);
+    const match=(this.locked.length?[this.translation.text]:this.translation.variants).find(v=>wordKey(v)===value);
     this.correct=Boolean(match);
-    if(!match) {this.errors++;this.translationErrors++;this.message='Попробуй ещё раз';return;}
-    if(this.translationErrors===0) {this.translationFirstTry++;this.firstTryCorrect++;}
-    if(this.taskErrors===0 && this.translationErrors===0)this.onReward('sentences',this.task.id);
+    if(!match) {
+      this.errors++;this.translationErrors++;this.message='Измени порядок слов и проверь снова';
+      if(this.translationErrors>=8)this.reveal();
+      else if(this.translationErrors===5)this.lockPositions([Math.floor((this.tiles.length-1)/2)]);
+      else if(this.translationErrors===3)this.lockPositions([0,this.tiles.length-1]);
+      return;
+    }
+    if(this.translationErrors===0&&!this.assisted) {this.translationFirstTry++;this.firstTryCorrect++;}
+    if(this.assisted)this.assistedTranslations++;else this.independentTranslations++;
+    if(this.taskErrors===0 && this.translationErrors===0&&!this.assisted)this.onReward('sentences',this.task.id);
     this.completedText=match;this.phase='translated';this.message='Верно!';
   }
   advance() {
@@ -4862,7 +4903,8 @@ function mount(online=null) {
   const ui=window.SlovariumUI;
   ui?.setReady();
   if(online?.role!=='parent'){ui?.onTopics(showTopics);ui?.open('learning');}
-  let pendingExchange=null;
+  let pendingExchange=null,pendingHint=null,hintBusy=false,disposed=false;
+  function cancelHint(){pendingHint=null;$('hint-confirmation').hidden=true;}
   function renderWallet() {
     $('wallet-balance').textContent=`Баланс: ${wallet.balance} $lovari`;
     $('balance-short').textContent=`${wallet.balance} $lovari`;
@@ -4871,6 +4913,10 @@ function mount(online=null) {
     $('wallet-words').textContent=`Выучено слов: ${wallet.state.words.length}`;
     $('wallet-sentences').textContent=`Освоено предложений: ${wallet.state.sentences.length}`;
     $('wallet-earned').textContent=`Всего заработано: ${wallet.earned} $lovari`;
+    const hints=Object.values(wallet.state.hints||{});
+    $('wallet-hints').textContent=`Подсказок куплено: ${hints.length} · Потрачено: ${hints.length*5} словари`;
+    $('hint-history-panel').hidden=!hints.length;$('hint-history').replaceChildren();
+    for(const h of hints){const task=assemblyTasks.find(t=>t.id===h.entry);if(!task)continue;const li=document.createElement('li');li.textContent=`${task.text.replace('___',task.answer)} — ${languageNames[h.lang]}: ${sentenceWords(task.translations[h.lang].text)[h.position]} · 5 словари`;$('hint-history').append(li);}
     $('wallet-message').textContent=wallet.message;
     $('wallet-intro').hidden=wallet.raw!==null;
     $('exchange-start').disabled=wallet.blocked||!wallet.saved||wallet.balance===0||online?.role==='child';
@@ -4902,7 +4948,7 @@ function mount(online=null) {
   const prepAPI=window.SlovariumPreparation,prepStore=online?.preparation||(prepAPI?new prepAPI.LocalPreparation(storage,courseEntries):null);
   let materialUI=null;
   const stopPrep=prepStore?.watch(()=>{if(online?.role==='parent')renderWallet();});
-  function dispose(){stopPrep?.();materialUI?.destroy();sentenceHelp.destroy?.();listeners.forEach(stop=>stop());}
+  function dispose(){disposed=true;cancelHint();stopPrep?.();materialUI?.destroy();sentenceHelp.destroy?.();listeners.forEach(stop=>stop());}
   const progress=online?.progress || new CourseProgress(storage);
   let selectedModule=progress.selection.module,screen=progress.selection.screen || 'catalog';
   function start(id,options={}) {
@@ -4956,6 +5002,7 @@ function mount(online=null) {
     online.dispose=dispose;
     online.repaint=renderWallet;renderWallet();return;
   }
+  ui?.onView(()=>cancelHint());
   if(prepAPI&&prepStore)materialUI=prepAPI.mount({document,entries:courseEntries,lessons:courseLessons,tasks:assemblyTasks,modules:courseModules,store:prepStore});
   for(const [id,tab]of [['module-materials','materials'],['module-practice','practice'],['module-check','check']])listen($(id),'click',()=>{moduleTab=tab;game.home();screen='lessons';practice=false;render();});
   listen($('practice-start'),'click',()=>start($('practice-lesson').value,{practice:true,kind:$('practice-kind').value||'words'}));
@@ -5062,28 +5109,37 @@ function mount(online=null) {
     $('translation-answer').replaceChildren();$('translation-pool').replaceChildren();
     $('translation-completed').textContent='';$('translation-completed').hidden=true;
     $('translation-feedback').textContent='';
-    if(!active) return;
+    $('paid-hint').hidden=true;
+    if(!active){cancelHint();$('hint-status').textContent='';return;}
+    if(!practice&&sg.translationErrors>=3)sg.restoreHints(wallet.state.hints);
+    if(pendingHint&&(pendingHint.game!==sg||pendingHint.entry!==sg.task.id||sg.phase!=='translation'||sg.hintPosition!==pendingHint.position))cancelHint();
     const lang=sg.task.translationLang,done=sg.phase==='translated';
     $('translation-title').textContent=lang==='kk'?'Собери перевод на казахском':'Собери перевод на русском';
     $('translation-answer').lang=lang;$('translation-pool').lang=lang;
     function tiles(container,ids,selected) {
       for(const [position,id] of ids.entries()) {
+        if(id===null){const slot=document.createElement('span');slot.className='word-slot';slot.textContent=String(position+1);slot.setAttribute('aria-label',`Место ${position+1}`);container.append(slot);continue;}
         const button=document.createElement('button');button.className='word-tile';button.type='button';button.lang=lang;
         button.textContent=sg.tiles[id].text;button.dataset.token=String(id);
+        if(selected&&sg.locked.includes(id)){button.disabled=true;button.className+=' word-locked';button.setAttribute('aria-label',`Закреплено: ${sg.tiles[id].text}`);container.append(button);continue;}
         button.setAttribute('aria-label',`${selected?'Вернуть слово':'Добавить слово'}: ${sg.tiles[id].text}`);
         listen(button,'click',()=>{
           sentenceHelp.close();if(selected) sg.remove(id);else sg.pick(id);renderBuilder();
           const remaining=$(selected?'translation-answer':'translation-pool').children;
-          if(remaining.length) remaining[Math.min(position,remaining.length-1)].focus();
+          const focusable=Array.from(remaining).filter(el=>el.tagName==='BUTTON'&&!el.disabled);
+          if(focusable.length) focusable[Math.min(position,focusable.length-1)].focus();
           else if(sg.canCheck) $('translation-check').focus();else $('translation-title').focus();
         });container.append(button);
       }
     }
     if(!done) {tiles($('translation-answer'),sg.selected,true);tiles($('translation-pool'),sg.pool,false);}
     $('translation-answer').hidden=done;$('translation-pool').hidden=done;
-    $('translation-clear').hidden=done;$('translation-clear').disabled=!sg.selected.length;
+    $('translation-clear').hidden=done;$('translation-clear').disabled=!sg.selected.some(id=>id!==null&&!sg.locked.includes(id));
     $('translation-check').hidden=done;$('translation-check').disabled=!sg.canCheck;
     $('translation-feedback').textContent=sg.message;
+    $('translation-state').textContent=done?'':sg.canCheck?'Можно проверить':sg.selected.length!==sg.tiles.length||sg.selected.includes(null)?'Собери предложение полностью':'Измени порядок слов и проверь снова';
+    $('paid-hint').hidden=practice||done||sg.hintPosition<0;
+    $('paid-hint').disabled=hintBusy||wallet.blocked||!wallet.saved||(online&&!navigator.onLine);
     if(done) {
       $('translation-completed').hidden=false;$('translation-completed').lang=lang;
       $('translation-completed').textContent=sg.completedText;
@@ -5128,6 +5184,8 @@ function mount(online=null) {
       $('first-try-result').textContent=sentenceMode?`Английские предложения: ${score.englishFirstTry} из ${count} с первой попытки`:`Верно с первой попытки: ${score.firstTryCorrect} из ${total}`;
       $('translation-first-try-result').hidden=!sentenceMode;
       $('translation-first-try-result').textContent=sentenceMode?`Переводы: ${score.translationFirstTry} из ${count} с первой попытки`:'';
+      $('assistance-result').hidden=!sentenceMode;
+      $('assistance-result').textContent=sentenceMode?`Без помощи: ${score.independentTranslations}; с помощью: ${score.assistedTranslations}; показан ответ: ${score.revealedTranslations}.`:'';
       $('errors-result').textContent=`Ошибок: ${score.errors}`;
       if(practice){const finished=practiceStopped?practiceCompleted:count;$('progress').textContent=`Выполнено ${finished} из ${count} заданий`;$('progress-bar').value=finished*2;$('complete-title').textContent=practiceStopped?'Тренировка завершена':'Тренировка пройдена';$('complete-note').textContent=`Без монет. Образец использован: ${practiceUses}. Результаты проверки не изменены.`;$('unlock-message').hidden=true;$('to-sentences').hidden=true;$('restart').textContent='Повторить тренировку';}
       $('complete-title').focus();return;
@@ -5139,14 +5197,14 @@ function mount(online=null) {
       $('sentence-language').textContent=languageNames[task.lang];
       sentenceHelp.render(task,!awaiting);
       $('sentence-text').lang=task.lang;
-      $('sentence-result').textContent=awaiting?'':sg.phase==='feedback'?'Попробуй ещё раз':'Верно!';
+      $('sentence-result').textContent=awaiting?'':sg.phase==='feedback'?'Попробуй ещё раз':sg.revealed?'Ответ показан для повторения':sg.phase==='translated'?'Верно!':'';
       $('sentence-options').replaceChildren(); $('sentence-options').hidden=!awaiting;
       if(awaiting) for(const value of sg.options) {
         const button=document.createElement('button');button.className='option';button.lang=task.lang;button.textContent=value;
         listen(button,'click',()=>{if(!wallet.blocked)wallet.message='';sg.answer(value);render();});$('sentence-options').append(button);
       }
       $('sentence-advance').hidden=!['feedback','translated'].includes(sg.phase);
-      $('sentence-advance').textContent=sg.phase==='translated'?'Следующее предложение':'Повторить';
+      $('sentence-advance').textContent=sg.phase==='translated'?(sg.index===sg.deck.length-1?'К итогам':'Следующее предложение'):'Повторить';
       if(awaiting) $('sentence-text').focus();else if(sg.phase==='translation') $('translation-title').focus();else $('sentence-advance').focus();
       return;
     }
@@ -5195,7 +5253,29 @@ function mount(online=null) {
     game.sentenceGame?.check();sentenceHelp.close();
     if(game.sentenceGame?.phase==='translated') render();else {renderWallet();renderBuilder();$('translation-title').focus();}
   });
+  listen($('paid-hint'),'click',()=>{
+    const sg=game.sentenceGame;if(practice||hintBusy||wallet.blocked||!wallet.saved||sg?.hintPosition<0||!sg)return;
+    $('hint-status').textContent='';
+    if(wallet.balance<5){$('hint-status').textContent='Для подсказки нужно 5 словари. Бесплатная помощь остаётся доступной.';return;}
+    pendingHint={game:sg,entry:sg.task.id,lang:sg.task.translationLang,position:sg.hintPosition};
+    $('hint-confirmation').hidden=false;$('hint-cancel').focus();
+  });
+  listen($('hint-cancel'),'click',()=>{cancelHint();$('paid-hint').focus();});
+  listen($('hint-confirm'),'click',async()=>{
+    const request=pendingHint;if(!request||hintBusy||practice||game.sentenceGame!==request.game||request.game.task.id!==request.entry||request.game.hintPosition!==request.position)return;
+    cancelHint();hintBusy=true;renderBuilder();
+    try{
+      const ok=await wallet.buyHint(request.entry,request.lang,request.position);
+      if(disposed)return;
+      if(game.sentenceGame===request.game&&request.game.task.id===request.entry){
+        const received=Boolean(wallet.state.hints?.[`${request.entry}_${request.lang}_${request.position}`]);
+        if(received)request.game.restoreHints(wallet.state.hints);
+        $('hint-status').textContent=received?'Слово закреплено. За него больше не нужно платить.':ok?'Покупка сохранена. Ожидаем обновление профиля.':wallet.message||'Покупка не подтверждена. Проверь подключение и повтори.';
+      }
+    }finally{hintBusy=false;if(!disposed)render();}
+  });
   listen($('sentence-advance'),'click',()=>{
+    cancelHint();$('hint-status').textContent='';
     if(!wallet.blocked)wallet.message='';
     game.sentenceGame.advance();
     if(game.sentenceGame.phase==='complete') game.phase='sentence-complete';
@@ -5204,11 +5284,11 @@ function mount(online=null) {
   listen($('advance'),'click',()=>{if(!wallet.blocked)wallet.message='';game.advance();render();});
   listen($('back-modules'),'click',showTopics);
   if(online)online.dispose=dispose;
-  if(online)online.repaint=()=>{renderWallet();renderCatalog();};
+  if(online)online.repaint=()=>{render();};
   if(screen==='lesson' && progress.selection.lesson) start(progress.selection.lesson);else render();
 }
 if(typeof module!=='undefined' && module.exports) module.exports={SlovariWallet,walletStorageKey,topicDesigns,topicIllustration,validSelection,courseContentIssues,validAssemblyScore,sentenceWords,wordKey,sentenceSignature,assemblySentenceParts,assemblyTasks,assemblyBank,courseEntries,courseLessons,courseModules,CourseProgress,courseStorageKey,entriesFor,tasksFor,courseSentenceParts,sentenceParts,createSentenceHelp,legacySentenceBank:sentenceBank,sentenceBank:assemblyBank,SentenceGame,vocabulary,categories,languages,WordGame,shuffle,loadCategory,saveCategory,storageKey};
-if(typeof window!=='undefined')window.SlovariumCore={courseModules,mount,CourseProgress,SlovariWallet,courseStorageKey,walletStorageKey,courseLessons,courseEntries,assemblyTasks,validScore,validAssemblyScore,sentenceSignature};
+if(typeof window!=='undefined')window.SlovariumCore={sentenceWords,courseModules,mount,CourseProgress,SlovariWallet,courseStorageKey,walletStorageKey,courseLessons,courseEntries,assemblyTasks,validScore,validAssemblyScore,sentenceSignature};
 if(typeof document!=='undefined') {
   if(document.querySelectorAll) {window.SlovariumUI=initializeInterface();window.SlovariumUI.setReady(false);}
   if(!window.SlovariumOnline)mount();

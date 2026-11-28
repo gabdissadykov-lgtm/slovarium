@@ -73,6 +73,7 @@
 <div class="wallet-heading"><h2 id="wallet-title">Мои $lovari</h2><button id="exchange-toggle" class="secondary" aria-expanded="false" aria-controls="exchange-panel">Обмен</button></div>
 <p id="wallet-balance" class="wallet-balance"></p>
 <div class="wallet-stats"><p id="wallet-words"></p><p id="wallet-sentences"></p><p id="wallet-earned"></p></div>
+<p id="wallet-hints" class="hint"></p><details id="hint-history-panel" hidden><summary>Купленные подсказки</summary><ul id="hint-history"></ul></details>
 <p id="wallet-intro" class="muted">$lovari начисляются за новые успешные прохождения.</p>
 <p class="muted">10 за слово · 20 за предложение. Без ошибок, один раз за задание.</p>
 <p id="wallet-message" role="status" aria-live="polite"></p>
@@ -131,10 +132,14 @@
 <div id="translation-pool" class="word-tray" role="group" aria-label="Слова для перевода"></div>
 <p id="translation-feedback" class="result" role="status"></p><p id="translation-completed" class="example" hidden></p>
 <div class="builder-actions"><button id="translation-clear" class="secondary">Очистить</button><button id="translation-check" class="primary" disabled>Проверить</button></div>
+<p id="translation-state" class="hint" role="status"></p>
+<button id="paid-hint" class="secondary" type="button" hidden>Подсказка · 5 словари</button>
+<div id="hint-confirmation" class="hint-confirmation" role="group" aria-labelledby="hint-confirm-text" hidden><p id="hint-confirm-text">Подсказка стоит 5 словари. Списать монеты?</p><div class="builder-actions"><button id="hint-cancel" class="secondary" type="button">Отмена</button><button id="hint-confirm" class="primary" type="button">Получить за 5</button></div></div>
+<p id="hint-status" class="hint" role="status"></p>
 </section>
 <button id="sentence-advance" class="primary" hidden>Повторить</button>
 </div>
-<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">✓</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="practice-to-check" class="primary" type="button" hidden>К проверке</button><button id="complete-home" class="secondary">К урокам</button></div></div>
+<div id="complete" class="complete" hidden><span class="celebration" aria-hidden="true">✓</span><h2 id="complete-title" tabindex="-1">Набор пройден</h2><p id="complete-note">Все 10 понятий — на трёх языках. Отличная работа!</p><p id="first-try-result"></p><p id="translation-first-try-result" hidden></p><p id="assistance-result" hidden></p><p id="errors-result"></p><p id="unlock-message" hidden>Угадай с первой попытки минимум 16 переводов из 20, чтобы открыть предложения</p><div class="complete-actions"><button id="to-sentences" class="primary" hidden>Перейти к предложениям</button><button id="restart" class="primary">Повторить набор</button><button id="practice-to-check" class="primary" type="button" hidden>К проверке</button><button id="complete-home" class="secondary">К урокам</button></div></div>
 </section>
 </div>
 <footer><button class="text-button" data-view="settings-view">Семья и настройки</button><span>9 тем · 829 записей · 3 языка</span></footer>

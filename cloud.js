@@ -205,6 +205,23 @@ async function startCloud(){
    }
   }catch{status('Очередь повреждена или хранилище недоступно. Не закрывайте страницу; новые результаты могут не сохраниться локально.');queueDurable=false;}
   const wallet={state:withHistory(data.wallet),raw:'cloud',saved:false,blocked:false,message:'',get earned(){return model.earned(this.state);},get balance(){return model.balance(this.state);},reward(kind,id){if(active?.wallet!==this||this.blocked)return;queueReward(kind,id);},
+   async buyHint(entry,lang,position){
+    if(role!=='child'||!active||active.wallet!==this||this.blocked||!navigator.onLine||queueCount()){this.message='Подсказка доступна после подключения и сохранения результатов';return false;}
+    const task=core.assemblyTasks.find(t=>t.id===entry);
+    if(!task||!['kk','ru'].includes(lang)||!Number.isInteger(position)||position<0||position>=core.sentenceWords(task.translations[lang].text).length)return false;
+    const ownerFamily=family,ownerChild=selected,expectedVersion=profileVersion;
+    this.saved=false;repaint();
+    try{let purchased;
+     await F.runTransaction(db,async tx=>{
+      const ref=childRef(ownerFamily,ownerChild),snap=await tx.get(ref);if(!snap.exists())throw Error('Профиль не найден');model.requireActive(snap.data(),expectedVersion);
+      const w=snap.data().wallet;
+      if(w.version===1&&w.exchanges.length)throw Error('Попроси родителя один раз открыть твой профиль для обновления кошелька. Бесплатная помощь доступна.');
+      purchased=model.buyHint(w,entry,lang,position);if(purchased!==w)tx.update(ref,{wallet:purchased,activity:true});
+     });
+     // The profile snapshot is authoritative; never overwrite a newer parallel snapshot with this transaction's older wallet.
+     this.message='Подсказка сохранена. Повторного списания за это слово не будет.';return true;
+    }catch(e){this.message=friendly(e);return false;}finally{syncStatus();}
+   },
    async exchange(expected){
     if(role!=='parent'||!active||active.wallet!==this||this.blocked||!navigator.onLine||queueCount())return false;
     const ownerFamily=family,ownerChild=selected,expectedVersion=profileVersion;
@@ -237,6 +254,10 @@ async function startCloud(){
    }
   };
   const progress=new OnlineProgress();active={wallet,progress,preparation,role,userUid:auth.currentUser.uid};owner=active;
+  if(role==='parent'&&data.wallet.version===1){
+   const ownerFamily=family,ownerChild=selected,expectedVersion=profileVersion;
+   void F.runTransaction(db,async tx=>{const ref=childRef(ownerFamily,ownerChild),snap=await tx.get(ref);if(!snap.exists())return;model.requireActive(snap.data(),expectedVersion);const w=snap.data().wallet;if(w.version===1)tx.update(ref,{wallet:model.migrateWallet(w)});}).catch(e=>{if(active===owner){wallet.message=friendly(e);repaint();}});
+  }
   core.mount(active);$('backup-export').disabled=false;document.querySelector('.wallet[aria-labelledby="wallet-title"]').hidden=false;
   profileListeners.push(F.onSnapshot(F.collection(db,'families',family,'children',selected,'preparation'),snap=>{
    if(active!==owner)return;

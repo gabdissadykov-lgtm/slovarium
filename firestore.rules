@@ -44,10 +44,33 @@ service cloud.firestore {
    return old is list && next is list && next.size() == old.size()+1 && next.size() <= 829 &&
     next.toSet().size() == next.size() && next.hasAll(old) && known(next[next.size()-1]) && !(next[next.size()-1] in old);
   }
-  function childWallet(old, next) {
+  function legacyChildWallet(old, next) {
    return next.keys().hasOnly(['version','words','sentences','exchanges']) && next.version == 1 && next.exchanges == old.exchanges &&
     ((next.sentences == old.sentences && oneAdded(old.words, next.words)) ||
      (next.words == old.words && oneAdded(old.sentences, next.sentences)) || next == old);
+  }
+  function wallet2Shape(w) {
+   return w.keys().hasOnly(['version','words','sentences','exchanges','spent','hints','lastHint']) && w.version==2 &&
+    w.spent is int && w.spent>=0 && w.spent<=w.words.size()*10+w.sentences.size()*20 && w.hints is map && w.lastHint is string;
+  }
+  function hintAdded(old,next) {
+   let h=next.hints.get(next.lastHint,{});
+   return next.words==old.words && next.sentences==old.sentences && next.exchanges==old.exchanges &&
+    next.spent==old.spent+5 && next.hints.size()==old.hints.size()+1 && !(next.lastHint in old.hints) &&
+    next.hints.diff(old.hints).affectedKeys().hasOnly([next.lastHint]) &&
+    h.keys().hasOnly(['entry','lang','position']) && known(h.entry) && h.lang in ['kk','ru'] &&
+    h.position is int && h.position>=0 && h.position<200 && next.lastHint==h.entry+'_'+h.lang+'_'+string(h.position);
+  }
+  function childWallet(old,next) {
+   return (old.version==1 && legacyChildWallet(old,next)) ||
+    (wallet2Shape(next) &&
+     ((old.version==1 && old.exchanges.size()==0 &&
+       ((next.words==old.words && next.sentences==old.sentences && next.exchanges==old.exchanges && next.spent==0 && next.hints=={} && next.lastHint=='') ||
+        hintAdded({'words':old.words,'sentences':old.sentences,'exchanges':old.exchanges,'spent':0,'hints':{}},next))) ||
+      (old.version==2 &&
+       ((next.spent==old.spent && next.hints==old.hints && next.lastHint==old.lastHint && next.exchanges==old.exchanges &&
+        ((next.words==old.words && oneAdded(old.sentences,next.sentences)) ||
+         (next.sentences==old.sentences && oneAdded(old.words,next.words)) || next==old)) || hintAdded(old,next)))));
   }
   match /devices/{uid} {
    allow get: if signed() && (request.auth.uid == uid || (google() && (resource.data.family == '' || resource.data.family == request.auth.uid)));

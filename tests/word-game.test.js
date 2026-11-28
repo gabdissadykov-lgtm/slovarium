@@ -225,7 +225,7 @@ function memoryStorage(initial={}) {
 function courseSession(storage=memoryStorage()) {
  const html=fs.readFileSync('index.html','utf8'),elements={};
  for(const [,id] of html.matchAll(/id="([^"]+)"/g)) elements[id]=new Element();
- const window={localStorage:storage,addEventListener(){},clearTimeout(){}};
+ const window={localStorage:storage,SlovariumCloudModel:require('../cloud-model.js'),addEventListener(){},clearTimeout(){}};
  const context={window,document:{addEventListener(){},createTextNode:text=>{const e=new Element();e.textContent=text;return e;},getElementById:id=>elements[id],createElement:()=>new Element()}};
  vm.runInNewContext(fs.readFileSync('script.js','utf8'),context);
  return {e:elements,storage};
@@ -243,6 +243,26 @@ function finishCourseDOM(e,lesson,mistakes=[]) {
  }
  assert.equal(step,lesson.entries.length*2);
 }
+test('DOM assistance: locked slots, cancel/confirm, double click and purchased hint recovery',async()=>{
+ const {e,storage}=courseSession(),id='m1-l1';e.modules.children[0].click();e['course-lessons'].children[0].click();finishCourseDOM(e,courseLessons[id]);e['to-sentences'].click();
+ const task=tasksFor(id).find(t=>t.text===e['sentence-text'].textContent);
+ e['sentence-options'].children.find(b=>b.textContent===task.answer).click();
+ const lang=e['translation-pool'].lang,words=sentenceWords(task.translations[lang].text);
+ // A fixed reversed order is a new attempt after explicitly clearing the answer.
+ for(let attempt=0;attempt<3;attempt++){
+  e['translation-clear'].click();
+  for(const word of [...words].reverse())e['translation-pool'].children.find(b=>wordKey(b.textContent)===wordKey(word)).click();
+  assert.equal(e['translation-check'].hidden,false);assert.equal(e['translation-check'].disabled,false);e['translation-check'].click();
+ }
+ if(words.length<=3)return; // Course remains free to reveal genuinely short tasks.
+ assert.equal(e['paid-hint'].hidden,false);assert.equal(e['translation-answer'].children.filter(b=>b.disabled).length,2);
+ const before=JSON.parse(storage.getItem(walletStorageKey));
+ e['paid-hint'].click();assert.equal(e['hint-confirmation'].hidden,false);e['hint-cancel'].click();assert.deepEqual(JSON.parse(storage.getItem(walletStorageKey)),before);
+ e['paid-hint'].click();const first=e['hint-confirm'].click(),second=e['hint-confirm'].click();await Promise.all([first,second]);
+ const after=JSON.parse(storage.getItem(walletStorageKey));assert.equal(after.spent,5);assert.equal(Object.keys(after.hints).length,1);
+ assert.equal(e['hint-confirmation'].hidden,true);assert.match(e['balance-short'].textContent,/95 /);
+ assert.equal(new SlovariWallet(storage).balance,95);
+});
 test('course source coverage, permanent lessons, sections, repeats, edits and metadata',()=>{
  const pilotEntries=courseEntries.filter(e=>e.moduleId===1),pilotLessons=Object.fromEntries(Object.entries(courseLessons).filter(([,l])=>l.module===1));
  assert.equal(courseModules.length,9);assert.equal(courseModules.filter(m=>m.ready).length,9);
@@ -360,7 +380,7 @@ test('format 2 errors: independent stages, incomplete checks, unchanged submissi
  assert.equal(sg.englishFirstTry,0);assert.equal(sg.phase,'translation');
  sg.check();assert.equal(sg.errors,1);sg.pick(sg.pool[0]);sg.check();assert.equal(sg.errors,1);sg.clear();
  const bad=[...sg.pool];bad.forEach(id=>sg.pick(id));assert.ok(sg.canCheck);sg.check();assert.equal(sg.errors,2);
- assert.equal(sg.phase,'translation');assert.equal(sg.message,'Попробуй ещё раз');
+ assert.equal(sg.phase,'translation');assert.equal(sg.message,'Измени порядок слов и проверь снова');
  sg.check();sg.check();assert.equal(sg.errors,2);assert.equal(sg.canCheck,false);
  const last=sg.selected.at(-1);sg.remove(last);sg.pick(last);sg.check();assert.equal(sg.errors,2);
  let secondWrong=null;

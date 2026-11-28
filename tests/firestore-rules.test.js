@@ -45,6 +45,29 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  // A new empty device can still attach to an existing active profile.
  const extraUid='extra-anonymous-device-123456789';ok(await write('devices/'+extraUid,{family:'',child:''},{uid:extraUid,provider:'anonymous'}));
  ok(await write('devices/'+extraUid,{family:parent,child:'atomic-child',accessVersion:0},owner));
+ // Hint payments are append-only wallet operations with fixed price and nonnegative balance.
+ const hintModel=require('../cloud-model.js');
+ let hw=hintModel.addReward(hintModel.emptyWallet(),'words','m1-r001');
+ ok(await write(freshProfile,{wallet:hw,activity:true},freshKid,true));
+ const paid=hintModel.buyHint(hw,'m1-r001','kk',1);
+ denied(await write(freshProfile,{wallet:{...paid,spent:0},activity:true},freshKid,true));
+ denied(await write(freshProfile,{wallet:paid,activity:true},kid,true));
+ ok(await write(freshProfile,{wallet:paid,activity:true},freshKid,true));
+ ok(await write(freshProfile,{wallet:paid,activity:true},freshKid,true)); // replay cannot charge twice
+ denied(await write(freshProfile,{wallet:{...paid,spent:10},activity:true},freshKid,true));
+ denied(await write(freshProfile,{wallet:{...paid,hints:{}},activity:true},freshKid,true));
+ denied(await write(freshProfile,{wallet:{...paid,hints:{...paid.hints,'m1-r001_kk_2':{entry:'m1-r001',lang:'kk',position:2}}},activity:true},freshKid,true));
+ hw=hintModel.buyHint(paid,'m1-r001','kk',2);ok(await write(freshProfile,{wallet:hw,activity:true},freshKid,true));
+ denied(await write(freshProfile,{wallet:{...hintModel.buyHint(hintModel.addReward(hw,'words','m1-r002'),'m1-r001','kk',3),words:hw.words},activity:true},freshKid,true));
+ const rewarded2=hintModel.addReward(hw,'words','m1-r002');ok(await write(freshProfile,{wallet:rewarded2,activity:true},freshKid,true));
+ const exchanged2=hintModel.exchange(rewarded2,10,'2026-11-28T10:00:00.000Z');
+ denied(await write(freshProfile,{wallet:exchanged2,activity:true},freshKid,true));
+ ok(await write(freshProfile,{wallet:exchanged2},owner,true));
+ // Child cannot manufacture the initial spent total from arbitrary legacy exchanges.
+ const legacyHint=hintModel.exchange(hintModel.addReward(hintModel.emptyWallet(),'words','m1-r001'),10,'2026-11-28T10:00:00.000Z');
+ ok(await write(freshProfile,{wallet:legacyHint},owner,true));
+ denied(await write(freshProfile,{wallet:hintModel.migrateWallet(legacyHint),activity:true},freshKid,true));
+ ok(await write(freshProfile,{wallet:hintModel.migrateWallet(legacyHint)},owner,true));
  // Self-assessment is isolated, typed, versioned and cannot change rewards/results.
  const markPath=profile+'/preparation/words_m1-r001';
  const mark={kind:'words',entry:'m1-r001',known:true,accessVersion:0};
