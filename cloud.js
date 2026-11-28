@@ -130,6 +130,7 @@ async function startCloud(){
  }
  function choose(id,deviceVersion=0){
   closeEditors();
+  if(role==='parent'&&selected===id&&active)$('profile-tools').hidden=false;
   if(mounted&&(selected!==id||!active||(role==='child'&&bindingVersion!==deviceVersion))){try{sessionStorage.setItem('slovarium.selectedChild',id);}catch{}location.reload();return;}
   bindingVersion=deviceVersion;selected=id;try{sessionStorage.setItem('slovarium.selectedChild',id);}catch{}
   if(role==='parent')renderChildren();
@@ -305,6 +306,7 @@ async function startCloud(){
   loginBusy=true;window.SlovariumUI?.loginReady(false);status(parent?'Открываем вход через Google…':'Создаём код устройства…');
   try{await (parent?A.signInWithPopup(auth,new A.GoogleAuthProvider()):A.signInAnonymously(auth));}catch(e){fail(e);}finally{loginBusy=false;window.SlovariumUI?.loginReady(true);}
  }
+ $('profile-cabinet-return').onclick=()=>{closeEditors();$('profile-tools').hidden=true;window.SlovariumUI?.open('settings-view');$('account-title').setAttribute('tabindex','-1');$('account-title').focus();$('account').scrollIntoView({block:'start'});};
  $('parent-login').onclick=()=>login(true);
  $('child-login').onclick=()=>login(false);
  $('account-signout').onclick=()=>guarded(async()=>{
@@ -365,6 +367,7 @@ async function startCloud(){
    if(!user){window.SlovariumUI?.open('welcome');status('Выберите способ входа: родитель или ребёнок.');return;}
    window.SlovariumUI?.open('settings-view');
    role=user.isAnonymous?'child':'parent';
+   window.SlovariumUI?.parent(role==='parent'?(user.displayName?.trim()||'Родитель'):null);
    window.SlovariumUI?.profile(role==='parent'?'Родитель':'Подключение');
    if(role==='parent'){
     family=user.uid;$('parent-dashboard').hidden=false;status('Загружаем семью…');

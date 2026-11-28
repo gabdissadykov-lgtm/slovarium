@@ -7,13 +7,14 @@
 </head>
 <body>
 <header>
-<button class="brand brand-button" data-view="learning" aria-label="Словариум — к обучению"><span class="logo" aria-hidden="true">С</span>Словариум</button>
+<button class="brand brand-button" type="button" data-view="welcome" aria-label="Словариум — на главный экран"><span class="logo" aria-hidden="true">С</span>Словариум</button>
 <nav id="app-nav" aria-label="Основная навигация"><button id="nav-learning" class="nav-button" data-view="learning" aria-current="page">Темы</button><button id="nav-progress" class="nav-button" data-view="progress-view">Мой прогресс</button></nav>
 <nav id="welcome-nav" aria-label="О сервисе" hidden><button class="nav-button" data-scroll="how-to-learn">Как учиться</button><button class="nav-button" data-scroll="for-parents">Для родителей</button></nav>
 <div class="header-actions"><button id="header-login" class="primary" data-view="welcome" data-scroll="welcome-access" hidden>Войти</button><button id="header-balance" class="balance-button" data-view="wallet-view" disabled><span aria-hidden="true">◉</span> <span id="balance-short">— $lovari</span></button><button id="profile-button" class="profile-button" data-view="settings-view">Локально</button></div>
 </header>
 <main>
 <div id="global-status" class="global-status" role="status" aria-live="polite"></div>
+<button id="parent-cabinet-return" class="text-button" type="button" data-view="settings-view" hidden>← В кабинет родителя</button>
 <section id="welcome" class="app-view" hidden aria-labelledby="welcome-title">
 <div class="welcome-hero">
 <div class="welcome-copy"><p class="eyebrow">ДЛЯ ШКОЛЬНИКОВ 1–7 КЛАССОВ</p><h1 id="welcome-title" tabindex="-1">Три языка.<br><span>Каждый день.</span></h1><p class="welcome-intro">Изучай английский, казахский и русский: выбирай переводы слов, собирай предложения и следи за своими результатами.</p>
@@ -44,7 +45,7 @@
 <section id="participant-confirmation" class="participant-editor delete-confirmation" hidden aria-labelledby="participant-confirm-title"><h3 id="participant-confirm-title" tabindex="-1">Удалить ребёнка навсегда?</h3><p id="participant-confirm-text"></p><div class="builder-actions"><button id="participant-cancel" class="secondary">Отмена</button><button id="participant-confirm" class="danger-button">Удалить навсегда</button></div></section>
 <section id="deletions-panel" hidden aria-labelledby="deletions-title"><h3 id="deletions-title">Незавершённое удаление</h3><div id="deleting-children" class="family-children"></div></section>
 <details id="participants-archive" class="participants-archive"><summary>Ранее скрытые профили <span id="archive-count"></span></summary><div id="archived-children" class="family-children"></div></details>
-<section id="profile-tools" hidden><h3 id="profile-name"></h3><form id="device-pair-form"><label for="device-input">Код с устройства ребёнка</label><div class="builder-actions"><input id="device-input" required autocomplete="off" spellcheck="false"><button type="submit" class="secondary">Подключить устройство</button></div></form><div id="linked-devices"></div>
+<section id="profile-tools" hidden><button id="profile-cabinet-return" class="text-button" type="button">← В кабинет родителя</button><h3 id="profile-name"></h3><form id="device-pair-form"><label for="device-input">Код с устройства ребёнка</label><div class="builder-actions"><input id="device-input" required autocomplete="off" spellcheck="false"><button type="submit" class="secondary">Подключить устройство</button></div></form><div id="linked-devices"></div>
 <p class="muted">Перенос прежнего прогресса возможен только в пустой профиль. Сначала сохраните копию из локальной версии.</p><label for="import-file">Открыть резервную копию</label><input id="import-file" type="file" accept=".json,application/json"><div id="import-preview" hidden><p id="import-summary"></p><div class="builder-actions"><button id="import-confirm" class="primary">Перенести в этот профиль</button><button id="import-cancel" class="secondary">Отмена</button></div></div></section>
 </div>
 </section>
