@@ -68,6 +68,48 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  ok(await write(freshProfile,{wallet:legacyHint},owner,true));
  denied(await write(freshProfile,{wallet:hintModel.migrateWallet(legacyHint),activity:true},freshKid,true));
  ok(await write(freshProfile,{wallet:hintModel.migrateWallet(legacyHint)},owner,true));
+ // Review events and materialized summaries must commit together with an exact transition.
+ const review=require('../review.js');let rs=null;
+ const reviewPath=freshProfile+'/review/words_m1-r001';
+ async function reviewWrite(e,user=freshKid,edit=x=>x,failed=false){
+  const eid=review.eventId(e),next=review.transition(rs,e,failed),version=0;
+  const ev={...e,revision:next.revision,accessVersion:version},summary={...next,accessVersion:version};delete summary.updatedAt;
+  const result=await request(':commit','POST',{writes:[
+   {update:{name:`projects/${project}/databases/(default)/documents/${freshProfile}/reviewEvents/${eid}`,fields:fields(ev)},updateTransforms:[{fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'}]},
+   {update:{name:`projects/${project}/databases/(default)/documents/${reviewPath}`,fields:fields(edit(summary))},updateTransforms:[{fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'}]}
+  ]},user);if(result.status===200)rs=summary;return result;
+ }
+ const reviewEvent=(session,type='bad',reason='error',cycle=rs?.cycle||'',oralIndex=-1)=>review.event('words','m1-r001',session,type,reason,cycle,oralIndex);
+ const initialReview=reviewEvent('initial');
+ denied(await reviewWrite(reviewEvent('no-cycle','ok','success')));denied(await reviewWrite(reviewEvent('no-cycle-practice','practice','practice')));
+ denied(await reviewWrite(initialReview,stranger));denied(await reviewWrite(initialReview,owner));
+ denied(await reviewWrite(initialReview,freshKid,x=>({...x,successes:['forged','forged2']})));
+ ok(await reviewWrite(initialReview));const oldReviewCycle=rs.cycle;
+ ok(await read(reviewPath,freshKid));ok(await read(reviewPath,owner));denied(await read(reviewPath,kid));denied(await read(reviewPath,stranger));
+ denied(await write(reviewPath,{successes:['forged']},freshKid,true));
+ const eventPath=freshProfile+'/reviewEvents/'+review.eventId(initialReview);
+ denied(await write(eventPath,{reason:'help'},freshKid,true));denied(await request('/'+eventPath,'DELETE',null,freshKid));denied(await request('/'+eventPath,'DELETE',null,owner));
+ ok(await reviewWrite(reviewEvent('one','ok','success')));assert.equal(rs.successes.length,1);
+ denied(await reviewWrite(reviewEvent('one','ok','success'))); // actual client treats existing event as a no-op
+ ok(await reviewWrite(reviewEvent('two','ok','success')));assert.equal(rs.successes.length,2);
+ ok(await reviewWrite(reviewEvent('reset','bad','help')));assert.equal(rs.successes.length,0);
+ ok(await reviewWrite(reviewEvent('late','ok','success',oldReviewCycle)));assert.equal(rs.successes.length,0);
+ // A bad event in the same session prevents a later fake clean success.
+ const failedSame=reviewEvent('same');ok(await reviewWrite(failedSame));
+ const sameOk=reviewEvent('same','ok','success');
+ denied(await reviewWrite(sameOk)); // helper falsely assumes no prior failure; the rules catch it
+ ok(await reviewWrite(sameOk,freshKid,x=>x,true));assert.equal(rs.successes.length,0);
+ // A different clean session remains valid.
+ ok(await reviewWrite(reviewEvent('after','ok','success')));assert.equal(rs.successes.length,1);
+ const activeCycle=rs.cycle;ok(await reviewWrite(reviewEvent('manual','manual','manual')));assert.equal(rs.cycle,activeCycle);assert.equal(rs.successes.length,1);
+ // Parents can only add oral evidence tied to a completed v019 check and the actual task index.
+ const checkId='review-oral';ok(await write(freshProfile+'/checks/'+checkId,{id:checkId,reviewVersion:1,status:'completed',tasks:[{entry:'m1-r001'}],grades:[2]},owner));
+ denied(await reviewWrite(reviewEvent(checkId,'bad','oral','',0),freshKid));
+ denied(await reviewWrite(reviewEvent(checkId,'bad','oral','',1),owner));
+ ok(await reviewWrite(reviewEvent(checkId,'bad','oral','',0),owner));assert.equal(rs.successes.length,0);
+ ok(await write(freshProfile,{archived:true,accessVersion:1},owner,true));denied(await read(reviewPath,freshKid));denied(await reviewWrite(reviewEvent('revoked')));
+ ok(await write(freshProfile,{deleting:true,archived:true,accessVersion:2},owner,true));
+ denied(await request('/'+eventPath,'DELETE',null,stranger));ok(await request('/'+eventPath,'DELETE',null,owner));ok(await request('/'+reviewPath,'DELETE',null,owner));
  // Self-assessment is isolated, typed, versioned and cannot change rewards/results.
  const markPath=profile+'/preparation/words_m1-r001';
  const mark={kind:'words',entry:'m1-r001',known:true,accessVersion:0};

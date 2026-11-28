@@ -67,6 +67,7 @@ async function session(back,user,options={}){
   __app:{initializeApp:()=>({})},__auth:A,__firestore:back.api};
  context.window={SlovariumOnline:true,SlovariumFirebaseConfig:{},SlovariumCloudModel:model,SlovariumCore:{...core,mount:x=>{mounted=x;x.repaint=()=>{};x.dispose=()=>{x.disposed=true;};context.window.SlovariumUI.setReady();context.window.SlovariumUI.open('learning');}},addEventListener:(k,fn)=>{const prior=events[k];events[k]=()=>{prior?.();fn();};},removeEventListener:()=>{},confirm:()=>true};
  const uiSource=fs.readFileSync('script.js','utf8');vm.runInNewContext(uiSource.slice(uiSource.indexOf('function initializeInterface()'),uiSource.indexOf('\nfunction mount(online='))+'\nwindow.SlovariumUI=initializeInterface();',context);
+ vm.runInNewContext(fs.readFileSync('review.js','utf8'),context);
  vm.runInNewContext(fs.readFileSync('oral-check.js','utf8'),context);
  let source=fs.readFileSync('cloud.js','utf8');
  for(const [name,key]of [['app','__app'],['auth','__auth'],['firestore','__firestore']])source=source.replace(`import('https://www.gstatic.com/firebasejs/13.4.0/firebase-${name}.js')`,`Promise.resolve(${key})`);
@@ -217,6 +218,7 @@ test('oral: two independent sessions, invitation, readiness, duplicate grade, F5
  parent.context.navigator.onLine=true;parent.events.online();await settle();
  for(let i=2;i<10;i++)await click(parent,i===2?'С подсказкой':'Верно');
  assert.equal(state().status,'completed');const saved=[...back.docs.entries()].find(([p])=>p.includes('/checks/'))[1];assert.equal(saved.grades.length,10);
+ const difficult=saved.tasks[2].entry,reviewPath=`families/${family}/children/${child}/review/words_${difficult}`;assert.ok(back.docs.has(reviewPath));assert.equal(back.docs.get(reviewPath).reasons[0],'oral');assert.equal(back.docs.get(reviewPath).failures,1);
  assert.ok(e['check-report'].children.some(e=>e.textContent==='С подсказкой: 1'));
  assert.deepEqual(back.docs.get(`families/${family}/children/${child}`).wallet,model.migrateWallet(model.emptyWallet()));
  await openChild(parent,'Әлия');buttonIn(e['child-profile-actions'],'Удалить ребёнка').click();await confirmDeletion(parent,'Әлия');
@@ -326,4 +328,30 @@ test('preparation queues survive F5, reject invalid entries and cannot be sent a
  const a=await session(back,{uid,isAnonymous:true},{local});a.context.navigator.onLine=false;a.active.preparation.set('words','fake',true);a.active.preparation.set('words','m1-r001',true);
  const reload=await session(back,{uid,isAnonymous:true},{local});await settle();assert.equal(back.docs.get(path+'/preparation/words_m1-r001').known,true);assert.equal(back.docs.has(path+'/preparation/words_fake'),false);
  reload.context.navigator.onLine=false;reload.active.preparation.set('sentences','m1-r001',true);back.docs.set(path,{...back.docs.get(path),archived:true,accessVersion:1});back.notify();await settle();reload.context.navigator.onLine=true;reload.events.online();await settle();assert.equal(back.docs.has(path+'/preparation/sentences_m1-r001'),false);
+});
+
+test('review: independent devices, one success per session, lost acknowledgement, F5 queue, stale cycle and revocation',async()=>{
+ const R=require('../review.js'),back=backend(),family='review-parent',child='child',uid='review-device-123456789012345',path=`families/${family}/children/${child}`;
+ back.docs.set(path,{name:'Әлия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
+ const a=await session(back,{uid,isAnonymous:true}),b=await session(back,{uid,isAnonymous:true});
+ const event=(ss,type='bad',reason='error',cycle='')=>R.event('words','m1-r001',ss,type,reason,cycle);
+ a.active.review.send(event('initial'));await settle();const cycle=back.docs.get(path+'/review/words_m1-r001').cycle;
+ await Promise.all([a.active.review.send(event('one','ok','success',cycle)),b.active.review.send(event('one','ok','success',cycle))]);await settle();assert.equal(back.docs.get(path+'/review/words_m1-r001').successes.length,1);
+ back.controls.loseNextAck=true;b.active.review.send(event('two','ok','success',cycle));await settle();assert.equal(back.docs.get(path+'/review/words_m1-r001').successes.length,2);assert.match(b.active.review.message,/ожидает/);b.events.online();await settle();assert.equal(back.docs.get(path+'/review/words_m1-r001').successes.length,2);
+ a.context.navigator.onLine=false;a.active.review.send(event('late','ok','success',cycle));b.active.review.send(event('newbad'));await settle();a.context.navigator.onLine=true;a.events.online();await settle();assert.equal(back.docs.get(path+'/review/words_m1-r001').successes.length,0);
+ a.context.navigator.onLine=false;a.active.review.send(R.event('sentences','m1-r002','offline','bad','help'));const reload=await session(back,{uid,isAnonymous:true},{local:a.local});await settle();assert.ok(back.docs.has(path+'/review/sentences_m1-r002'));
+ assert.equal(model.balance(back.docs.get(path).wallet),0);assert.equal(back.docs.has(path+'/results/m1-l1'),false);
+ const parent=await session(back,{uid:family,isAnonymous:false});await openChild(parent,'Әлия');assert.equal(parent.active.review.send(event('forged','ok','success',cycle)),false);
+ const old=reload.active.review;reload.context.navigator.onLine=false;old.send(R.event('words','m1-r003','revoked','bad','error'));back.docs.set(path,{...back.docs.get(path),archived:true,accessVersion:1});back.notify();await settle();reload.context.navigator.onLine=true;reload.events.online();await settle();assert.equal(back.docs.has(path+'/review/words_m1-r003'),false);assert.equal(old.send(event('after')),false);
+});
+
+test('review journal: draining events arriving during flush, oral recovery after F5, no legacy migration and full deletion',async()=>{
+ const R=require('../review.js'),back=backend(),family='review-oral-parent',child='child',uid='review-oral-device-1234567890',path=`families/${family}/children/${child}`;
+ back.docs.set(path,{name:'Әлия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
+ const a=await session(back,{uid,isAnonymous:true});for(let i=0;i<12;i++)a.active.review.send(R.event('words',core.courseEntries[i].id,'burst','bad','error'));await settle();assert.equal([...back.docs.keys()].filter(p=>p.startsWith(path+'/review/')).length,12);assert.doesNotMatch(a.active.review.message,/ожидает/);
+ back.docs.set(path+'/checks/current-v019',{id:'current-v019',topic:'test',createdAt:'2026-11-28',reviewVersion:1,status:'completed',step:2,tasks:[{entry:'m1-r020'},{entry:'m1-r021'}],grades:[1,2]});
+ back.docs.set(path+'/checks/legacy',{id:'legacy',topic:'test',createdAt:'2026-11-27',status:'completed',step:1,tasks:[{entry:'m1-r022'}],grades:[2]});
+ const selected=storage();selected.setItem('slovarium.selectedChild',child);const parent=await session(back,{uid:family,isAnonymous:false},{session:selected});await settle();assert.equal(back.docs.get(path+'/review/words_m1-r020').failures,1);assert.equal(back.docs.get(path+'/review/words_m1-r021').failures,1);assert.equal(back.docs.has(path+'/review/words_m1-r022'),false);
+ const reload=await session(back,{uid:family,isAnonymous:false},{session:selected});await settle();assert.equal(back.docs.get(path+'/review/words_m1-r020').failures,1);
+ await openChild(reload,'Әлия');buttonIn(reload.elements['child-profile-actions'],'Удалить ребёнка').click();await confirmDeletion(reload,'Әлия');assert.ok(![...back.docs.keys()].some(p=>p.startsWith(path+'/')));
 });

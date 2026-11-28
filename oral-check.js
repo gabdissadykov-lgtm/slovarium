@@ -13,7 +13,7 @@ function advance(s,expected,grade){
  const step=s.step+1;return {...s,step,grades:[...s.grades,grade],status:step===s.tasks.length?'completed':'active'};
 }
 function publicState(s){const t=s.tasks[s.step];return {session:s.id,status:s.status,step:s.step,total:s.tasks.length,ready:s.status!=='waiting',...(t&&['waiting','active'].includes(s.status)?{prompt:t.prompt,from:t.from,to:t.to,word:t.word}: {})};}
-function mount({F,db,family,child,role,core,onError}){
+function mount({F,db,family,child,role,core,onError,onCompleted=()=>{}}){
  const $=id=>document.getElementById(id),panel=$('oral-check'),isParent=role==='parent';
  const collection=name=>F.collection(db,'families',family,'children',child,name),live=F.doc(collection('checkLive'),'current'),ref=id=>F.doc(collection('checks'),id);
  let state=null,session=null,confirmed=false,busy=false,stopped=false,unsub=null,history=[],message='';
@@ -58,10 +58,10 @@ function mount({F,db,family,child,role,core,onError}){
   $('check-topic').replaceChildren();for(const m of core.courseModules){const o=document.createElement('option');o.value=m.id;o.textContent=m.name;$('check-topic').append(o);}
   $('check-form').onsubmit=e=>{e.preventDefault();void act(async()=>{
    const m=core.courseModules.find(m=>m.id===Number($('check-topic').value)),tasks=plan(core.courseEntries.filter(e=>e.moduleId===m.id),Number($('check-count').value),$('check-language').value),id=F.doc(collection('checks')).id;
-   const s={id,topic:m.name,createdAt:new Date().toISOString(),status:'waiting',step:0,tasks,grades:[]};
+   const s={id,topic:m.name,createdAt:new Date().toISOString(),reviewVersion:1,status:'waiting',step:0,tasks,grades:[]};
    await F.runTransaction(db,async tx=>{const old=await tx.get(live);if(old.exists()&&['waiting','active'].includes(old.data().status))throw Error('Сначала завершите или отмените текущую проверку');tx.set(ref(id),s);tx.set(live,publicState(s));});
   });};
-  unsub=F.onSnapshot(collection('checks'),{includeMetadataChanges:true},snap=>{history=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));session=history.find(s=>s.id===state?.session);const list=$('check-history-list');list.replaceChildren();for(const s of history){const b=button(`${s.topic} · ${new Date(s.createdAt).toLocaleString('ru-RU')}`,()=>details(s));b.disabled=false;list.append(b);}if(session&&['completed','cancelled'].includes(session.status))details(session);draw();},onError);
+  unsub=F.onSnapshot(collection('checks'),{includeMetadataChanges:true},snap=>{history=snap.docs.map(d=>d.data()).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));for(const s of history)if(s.reviewVersion===1&&s.status==='completed')onCompleted(s);session=history.find(s=>s.id===state?.session);const list=$('check-history-list');list.replaceChildren();for(const s of history){const b=button(`${s.topic} · ${new Date(s.createdAt).toLocaleString('ru-RU')}`,()=>details(s));b.disabled=false;list.append(b);}if(session&&['completed','cancelled'].includes(session.status)){details(session);}draw();},onError);
  }
  const stop=F.onSnapshot(live,{includeMetadataChanges:true},snap=>{const previous=state?.session;state=snap.exists()?snap.data():null;confirmed=!snap.metadata.fromCache&&!snap.metadata.hasPendingWrites;session=history.find(s=>s.id===state?.session);message='';draw();if(!isParent&&state&&['waiting','active'].includes(state.status)&&previous!==state.session)root.SlovariumUI?.open('settings-view');},e=>{confirmed=false;draw();onError(e);});
  const network=()=>{confirmed=false;draw();if(navigator.onLine)void F.getDocFromServer(live).then(snap=>{if(stopped)return;state=snap.exists()?snap.data():null;confirmed=true;session=history.find(s=>s.id===state?.session);draw();}).catch(e=>{if(!stopped){message=e.message;draw();}});};root.addEventListener('online',network);root.addEventListener('offline',network);

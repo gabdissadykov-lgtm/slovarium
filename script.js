@@ -4475,7 +4475,7 @@ class SlovariWallet {
 }
 
 class WordGame {
-  constructor(random = Math.random, onReward=()=>{}) { this.onReward=onReward; this.random=random; this.phase='home'; this.category=null; }
+  constructor(random = Math.random, onReward=()=>{}, onEvent=()=>{}) { this.onEvent=onEvent; this.onReward=onReward; this.random=random; this.phase='home'; this.category=null; }
   start(category) {
     if (!Object.hasOwn(vocabulary, category) && !Object.hasOwn(courseLessons, category)) return;
     this.unlocked=false; this.sentenceGame=null;
@@ -4514,9 +4514,9 @@ class WordGame {
     if(this.correct) {
       if(this.stageErrors===0) this.firstTryCorrect++;
     } else {
-      this.errors++; this.stageErrors++; this.cardErrors++;
+      this.errors++; this.stageErrors++; this.cardErrors++;this.onEvent({kind:'words',entry:this.entry.id,type:'bad',reason:'error'});
     }
-    if(this.correct && this.stage===1 && this.cardErrors===0)this.onReward('words',this.entry.id);
+    if(this.correct && this.stage===1){this.onEvent({kind:'words',entry:this.entry.id,type:'complete',clean:this.cardErrors===0});if(this.cardErrors===0)this.onReward('words',this.entry.id);}
     this.cardFeedback={target:this.target,correct:this.correct};
     if(this.correct && this.stage===0) { this.stage=1; this.stageErrors=0; this.prepare(); return; }
     this.phase='feedback';
@@ -4529,7 +4529,7 @@ class WordGame {
   }
   startSentences() {
     if(!this.unlocked || !['complete','sentence-complete'].includes(this.phase)) return;
-    this.sentenceGame=new SentenceGame(tasksFor(this.category),this.random,this.onReward);
+    this.sentenceGame=new SentenceGame(tasksFor(this.category),this.random,this.onReward,this.onEvent);
     this.phase='sentences';
   }
   home() { this.phase='home'; this.unlocked=false; this.sentenceGame=null; }
@@ -4583,10 +4583,12 @@ function sentenceSignature(lesson) {
   return `assembly-v2:${lesson.signature}:${hash>>>0}`;
 }
 class SentenceGame {
-  constructor(tasks,random=Math.random,onReward=()=>{}) {
+  constructor(tasks,random=Math.random,onReward=()=>{},onEvent=()=>{},short=false) {
+    this.onEvent=onEvent;
     this.onReward=onReward;this.random=random;this.index=0;this.firstTryCorrect=0;this.englishFirstTry=0;this.translationFirstTry=0;this.errors=0;this.independentTranslations=0;this.assistedTranslations=0;this.revealedTranslations=0;
     // The quota is exact per run; retries reuse the already assigned language.
-    const langs=shuffle(Array.from({length:tasks.length},(_,i)=>i<tasks.length-2?'kk':'ru'),random);
+    const russian=short?Math.round(tasks.length*.2):2;
+    const langs=shuffle(Array.from({length:tasks.length},(_,i)=>i<tasks.length-russian?'kk':'ru'),random);
     this.deck=shuffle(tasks,random).map((task,i)=>({...task,translationLang:langs[i]}));this.newTask();
   }
   get task() {return this.deck[this.index];}
@@ -4596,7 +4598,7 @@ class SentenceGame {
   answer(value) {
     if(this.phase!=='question' || !this.options.includes(value)) return;
     this.correct=value===this.task.answer;
-    if(!this.correct) {this.errors++;this.taskErrors++;this.phase='feedback';return;}
+    if(!this.correct) {this.errors++;this.taskErrors++;this.onEvent({kind:'sentences',entry:this.task.id,type:'bad',reason:'error'});this.phase='feedback';return;}
     if(this.taskErrors===0) {this.englishFirstTry++;this.firstTryCorrect++;}
     this.tiles=sentenceWords(this.translation.text).map((text,id)=>({id,text}));
     this.pool=shuffle(this.tiles.map(t=>t.id),this.random);
@@ -4632,7 +4634,7 @@ class SentenceGame {
     if(this.phase!=='translation')return;
     const added=positions.filter(p=>Number.isInteger(p)&&p>=0&&p<this.tiles.length&&!this.locked.includes(p));
     if(!added.length)return;
-    this.assisted=true;this.locked=[...new Set([...this.locked,...added])];this.clear();this.lastChecked=null;
+    this.onEvent({kind:'sentences',entry:this.task.id,type:'bad',reason:'help'});this.assisted=true;this.locked=[...new Set([...this.locked,...added])];this.clear();this.lastChecked=null;
     this.message='Закреплённые слова уже на месте. Собери показанный вариант перевода.';
     // Indistinguishable remaining tokens also form an unavoidable full answer.
     const remaining=this.tiles.filter(t=>!this.locked.includes(t.id));
@@ -4641,7 +4643,7 @@ class SentenceGame {
   restoreHints(hints){if(this.phase==='translation'&&this.translationErrors>=3)this.lockPositions(Object.values(hints||{}).filter(h=>h.entry===this.task.id&&h.lang===this.task.translationLang).map(h=>h.position),false);}
   reveal(){
     if(this.phase!=='translation')return;
-    this.assisted=true;this.revealed=true;this.revealedTranslations++;this.completedText=this.translation.text;this.phase='translated';this.message='Вот правильный перевод. Продолжай — это предложение можно повторить позже.';
+    this.onEvent({kind:'sentences',entry:this.task.id,type:'bad',reason:'reveal'});this.assisted=true;this.revealed=true;this.revealedTranslations++;this.completedText=this.translation.text;this.phase='translated';this.onEvent({kind:'sentences',entry:this.task.id,type:'complete',clean:false});this.message='Вот правильный перевод. Продолжай — это предложение можно повторить позже.';
   }
   check() {
     if(!this.canCheck) return;
@@ -4649,7 +4651,7 @@ class SentenceGame {
     const match=(this.locked.length?[this.translation.text]:this.translation.variants).find(v=>wordKey(v)===value);
     this.correct=Boolean(match);
     if(!match) {
-      this.errors++;this.translationErrors++;this.message='Измени порядок слов и проверь снова';
+      this.errors++;this.translationErrors++;this.onEvent({kind:'sentences',entry:this.task.id,type:'bad',reason:'error'});this.message='Измени порядок слов и проверь снова';
       if(this.translationErrors>=8)this.reveal();
       else if(this.translationErrors===5)this.lockPositions([Math.floor((this.tiles.length-1)/2)]);
       else if(this.translationErrors===3)this.lockPositions([0,this.tiles.length-1]);
@@ -4658,7 +4660,7 @@ class SentenceGame {
     if(this.translationErrors===0&&!this.assisted) {this.translationFirstTry++;this.firstTryCorrect++;}
     if(this.assisted)this.assistedTranslations++;else this.independentTranslations++;
     if(this.taskErrors===0 && this.translationErrors===0&&!this.assisted)this.onReward('sentences',this.task.id);
-    this.completedText=match;this.phase='translated';this.message='Верно!';
+    this.completedText=match;this.phase='translated';this.onEvent({kind:'sentences',entry:this.task.id,type:'complete',clean:this.taskErrors===0&&this.translationErrors===0&&!this.assisted});this.message='Верно!';
   }
   advance() {
     if(this.phase==='feedback') {this.prepare();return;}
@@ -4677,7 +4679,7 @@ function wordWithIPA(variant) {
   return variant.word + (variant.ipa ? ` /${variant.ipa}/` : '');
 }
 
-function createSentenceHelp(doc, view, sentence, tip) {
+function createSentenceHelp(doc, view, sentence, tip, onShow=()=>{}) {
   const listeners=[];
   function listen(target,event,fn,options){target.addEventListener(event,fn,options);if(target===doc||target===view||target===tip)listeners.push(()=>target.removeEventListener?.(event,fn,options));}
 
@@ -4704,7 +4706,7 @@ function createSentenceHelp(doc, view, sentence, tip) {
   function show(button,hint) {
     cancelClose();
     if(active===button && !tip.hidden) return;
-    close();active=button;
+    close();active=button;onShow();
     function line(text,lang) {
       const p=doc.createElement('p');p.textContent=text;
       if(lang) p.lang=lang;
@@ -4894,10 +4896,11 @@ function initializeInterface() {
 function mount(online=null) {
   const listeners=[];
   function listen(target,event,fn){target.addEventListener(event,fn);if(target.id)listeners.push(()=>target.removeEventListener?.(event,fn));}
+  let reviewMode=false,reviewSession='',reviewCycles={},reviewDone=new Set(),reviewClean=0,reviewAssisted=0,reviewShown=new Set(),reviewHelp=new Set(),reviewHelpOpen=new Set(),reviewInitialSuccess={};
   let practice=false,practiceKind='words',practiceUses=0,practiceStopped=false,practiceCompleted=0,helpId=null,helpText='',moduleTab='materials';
-  const game=new WordGame(Math.random,(kind,id)=>{if(!practice)wallet.reward(kind,id);});
+  const game=new WordGame(Math.random,(kind,id)=>{if(!practice)wallet.reward(kind,id);},observeReview);
   const $=id=>document.getElementById(id);
-  const sentenceHelp=createSentenceHelp(document,window,$('sentence-text'),$('word-tooltip'));
+  const sentenceHelp=createSentenceHelp(document,window,$('sentence-text'),$('word-tooltip'),()=>{const sg=game.sentenceGame;if(sg&&['question','translation'].includes(sg.phase)){if(reviewMode)sg.taskErrors++;observeReview({kind:'sentences',entry:sg.task.id,type:'bad',reason:'help'});}});
   let storage;try {storage=window.localStorage;} catch { /* Access may be blocked. */ }
   const wallet=online?.wallet || new SlovariWallet(storage);
   const ui=window.SlovariumUI;
@@ -4929,6 +4932,7 @@ function mount(online=null) {
     }
     $('exchange-empty').hidden=wallet.state.exchanges.length>0;
     if(online?.role==='parent'&&prepStore&&prepAPI)prepAPI.renderSummary(document,$('child-preparation-summary'),prepStore,courseModules,courseEntries);
+    if(online?.role==='parent'&&reviewStore&&reviewAPI)reviewAPI.summary(document,$('child-review-summary'),reviewStore,courseModules,courseEntries);
     ui?.refreshHeader?.();
   }
   function cancelExchange() {pendingExchange=null;$('exchange-confirmation').hidden=true;}
@@ -4945,26 +4949,37 @@ function mount(online=null) {
   });
   listen($('exchange-cancel'),'click',()=>{cancelExchange();$('exchange-start').focus();});
   listen($('exchange-confirm'),'click',async()=>{const amount=pendingExchange;cancelExchange();$('exchange-confirm').disabled=true;try{const operation=wallet.exchange(amount);if(operation?.then)await operation;}finally{$('exchange-confirm').disabled=false;renderWallet();$('exchange-toggle').focus();}});
+  const reviewAPI=window.SlovariumReview,reviewStore=online?.review||(reviewAPI?new reviewAPI.LocalReview(storage,courseEntries):null);
+  let reviewUI=null;
+  function observeReview(e){
+    if(!reviewStore||!reviewAPI||online?.role==='parent'||disposed)return;
+    if(reviewMode&&e.type==='bad'){if(e.reason==='reveal')reviewShown.add(e.entry);else if(e.reason==='help')reviewHelp.add(e.entry);}
+    if(e.type==='complete'){if(reviewMode&&!reviewDone.has(e.entry)){reviewDone.add(e.entry);if(e.clean){reviewClean++;reviewStore.send(reviewAPI.event(e.kind,e.entry,reviewSession,'ok','success',reviewCycles[e.kind+'_'+e.entry]||''));}else reviewAssisted++;}return;}
+    const type=practice&&!reviewMode?'practice':e.type;
+    reviewStore.send(reviewAPI.event(e.kind,e.entry,reviewSession,type,type==='practice'?'practice':e.reason,reviewCycles[e.kind+'_'+e.entry]||''));
+  }
+  function newReviewSession(){reviewSession=reviewAPI?.sessionId()||'';reviewCycles=Object.fromEntries(Object.entries(reviewStore?.state||{}).map(([id,r])=>[id,r.cycle]));reviewDone=new Set();reviewClean=0;reviewAssisted=0;reviewShown=new Set();reviewHelp=new Set();reviewHelpOpen=new Set();reviewInitialSuccess=Object.fromEntries(Object.entries(reviewStore?.state||{}).map(([id,r])=>[id,r.successes.length]));}
   const prepAPI=window.SlovariumPreparation,prepStore=online?.preparation||(prepAPI?new prepAPI.LocalPreparation(storage,courseEntries):null);
   let materialUI=null;
   const stopPrep=prepStore?.watch(()=>{if(online?.role==='parent')renderWallet();});
-  function dispose(){disposed=true;cancelHint();stopPrep?.();materialUI?.destroy();sentenceHelp.destroy?.();listeners.forEach(stop=>stop());}
+  function dispose(){disposed=true;cancelHint();stopPrep?.();stopReview?.();reviewUI?.destroy();materialUI?.destroy();sentenceHelp.destroy?.();listeners.forEach(stop=>stop());}
+  const stopReview=reviewStore?.watch(()=>{if(online?.role==='parent')renderWallet();});
   const progress=online?.progress || new CourseProgress(storage);
   let selectedModule=progress.selection.module,screen=progress.selection.screen || 'catalog';
   function start(id,options={}) {
     if(!Object.hasOwn(courseLessons,id)) return;
     if(!wallet.blocked)wallet.message='';
-    practice=options.practice===true;practiceKind=options.kind||'words';practiceUses=0;practiceStopped=false;practiceCompleted=0;helpId=null;helpText='';
+    reviewMode=false;newReviewSession();practice=options.practice===true;practiceKind=options.kind||'words';practiceUses=0;practiceStopped=false;practiceCompleted=0;helpId=null;helpText='';
     game.start(id);selectedModule=courseLessons[id].module;screen='lesson';
     if(practice&&practiceKind==='sentences'){game.unlocked=true;game.phase='complete';game.startSentences();}
     if(!practice){moduleTab='check';progress.select({mode:'course',module:selectedModule,lesson:id,screen});}render();
   }
   function showLessons() {
-    if(practice)moduleTab='practice';practice=false;helpId=null;
+    if(practice)moduleTab=reviewMode?'review':'practice';practice=false;reviewMode=false;helpId=null;
     game.home();screen='lessons';progress.select({mode:'course',module:selectedModule,lesson:progress.selection.lesson,screen});render();
   }
   function showTopics() {
-    practice=false;helpId=null;
+    practice=false;reviewMode=false;helpId=null;
     game.home();screen='catalog';progress.select({mode:'course',module:selectedModule,lesson:progress.selection.lesson,screen});render();
     if(selectedModule) $('modules').children[selectedModule-1]?.focus();
   }
@@ -5003,22 +5018,31 @@ function mount(online=null) {
     online.repaint=renderWallet;renderWallet();return;
   }
   ui?.onView(()=>cancelHint());
-  if(prepAPI&&prepStore)materialUI=prepAPI.mount({document,entries:courseEntries,lessons:courseLessons,tasks:assemblyTasks,modules:courseModules,store:prepStore});
-  for(const [id,tab]of [['module-materials','materials'],['module-practice','practice'],['module-check','check']])listen($(id),'click',()=>{moduleTab=tab;game.home();screen='lessons';practice=false;render();});
+  if(prepAPI&&prepStore)materialUI=prepAPI.mount({document,entries:courseEntries,lessons:courseLessons,tasks:assemblyTasks,modules:courseModules,store:prepStore,onRepeat:(kind,entry)=>reviewStore?.send(reviewAPI.event(kind,entry,reviewAPI.sessionId(),'manual','manual'))});
+  if(reviewAPI&&reviewStore)reviewUI=reviewAPI.mount({document,store:reviewStore,entries:courseEntries,onMaterials:()=>{moduleTab='materials';render();},onStart:startReview});
+  function startReview(kind,ids){
+    if(!ids.length)return;const first=Object.values(courseLessons).find(l=>l.entries.some(e=>e.id===ids[0]));start(first.id,{practice:true,kind:'words'});reviewMode=true;practiceKind=kind;moduleTab='review';
+    game.deck=ids.map(id=>courseEntries.find(e=>e.id===id));
+    if(kind==='words'){game.index=0;game.firstTryCorrect=0;game.errors=0;game.newCard();}
+    else{game.sentenceGame=new SentenceGame(ids.map(id=>assemblyTasks.find(t=>t.id===id)),Math.random,()=>{},observeReview,true);game.phase='sentences';}
+    render();
+  }
+  for(const [id,tab]of [['module-materials','materials'],['module-practice','practice'],['module-check','check'],['module-review','review']])listen($(id),'click',()=>{moduleTab=tab;game.home();screen='lessons';practice=false;render();});
   listen($('practice-start'),'click',()=>start($('practice-lesson').value,{practice:true,kind:$('practice-kind').value||'words'}));
   listen($('practice-to-check'),'click',()=>start(game.category));
   listen($('practice-stop'),'click',()=>{if(!practice)return;practiceCompleted=game.phase==='sentences'?game.sentenceGame.index+(game.sentenceGame.phase==='translated'?1:0):game.index+(game.phase==='feedback'&&game.correct?1:0);practiceStopped=true;game.phase=game.phase==='sentences'?'sentence-complete':'complete';render();});
+  listen($('review-open-help'),'click',()=>{const id=game.phase==='sentences'?game.sentenceGame.task.id:game.entry.id;reviewHelpOpen.add(id);render();});
   listen($('practice-help'),'click',()=>{
     if(!practice)return;
     if(game.phase==='sentences'){
-      const sg=game.sentenceGame;if(['translated','complete'].includes(sg.phase))return;
+      const sg=game.sentenceGame;if(['translated','complete'].includes(sg.phase))return;observeReview({kind:'sentences',entry:sg.task.id,type:'bad',reason:'reveal'});
       helpId=sg.task.id;helpText=sg.task.text.replace('___',sg.task.answer)+' · '+sg.translation.text;practiceUses++;
       if(sg.phase==='feedback')sg.advance();
       if(sg.phase==='question'){sg.taskErrors++;sg.answer(sg.task.answer);}
       if(sg.phase==='translation'){sg.translationErrors++;sg.selected=sg.tiles.map(t=>t.id);sg.pool=[];sg.lastChecked=null;sg.check();}
     }else if(['question','feedback'].includes(game.phase)){
       if(game.phase==='feedback'&&game.correct)return;
-      const entry=game.entry;helpId=entry.id;helpText=languages.map(l=>entry[l].word).join(' · ');practiceUses++;
+      const entry=game.entry;observeReview({kind:'words',entry:entry.id,type:'bad',reason:'help'});helpId=entry.id;helpText=languages.map(l=>entry[l].word).join(' · ');practiceUses++;
       if(game.phase==='feedback')game.advance();
       while(game.phase==='question'&&game.entry.id===entry.id){game.stageErrors++;game.cardErrors++;game.answer(entry.id);}
     }
@@ -5039,8 +5063,10 @@ function mount(online=null) {
     $('continue-course').textContent=lastLesson?'Продолжить проверку →':'Открыть тему →';
     $('storage-notice').textContent=progress.saved?'':'Сохранение недоступно. Прогресс останется только до закрытия или обновления страницы.';
     $('module-hub').hidden=!inLessons;
+    $('review-panel').hidden=moduleTab!=='review';
+    if(inLessons&&moduleTab==='review')reviewUI?.open(selectedModule);
     $('materials-panel').hidden=moduleTab!=='materials';$('practice-panel').hidden=moduleTab!=='practice';$('check-mode-note').hidden=moduleTab!=='check';
-    for(const [id,tab]of [['module-materials','materials'],['module-practice','practice'],['module-check','check']])$(id).setAttribute('aria-pressed',String(tab===moduleTab));
+    for(const [id,tab]of [['module-materials','materials'],['module-practice','practice'],['module-check','check'],['module-review','review']])$(id).setAttribute('aria-pressed',String(tab===moduleTab));
     if(inLessons)materialUI?.open(selectedModule);
     const trainingLesson=$('practice-lesson').value;$('practice-lesson').replaceChildren();
     for(const lesson of Object.values(courseLessons).filter(l=>l.module===selectedModule)){const option=document.createElement('option');option.value=lesson.id;option.textContent=`Урок ${lesson.number} · ${lesson.entries.length} записей`;$('practice-lesson').append(option);}
@@ -5111,7 +5137,7 @@ function mount(online=null) {
     $('translation-feedback').textContent='';
     $('paid-hint').hidden=true;
     if(!active){cancelHint();$('hint-status').textContent='';return;}
-    if(!practice&&sg.translationErrors>=3)sg.restoreHints(wallet.state.hints);
+    if((!practice||reviewMode)&&sg.translationErrors>=3)sg.restoreHints(wallet.state.hints);
     if(pendingHint&&(pendingHint.game!==sg||pendingHint.entry!==sg.task.id||sg.phase!=='translation'||sg.hintPosition!==pendingHint.position))cancelHint();
     const lang=sg.task.translationLang,done=sg.phase==='translated';
     $('translation-title').textContent=lang==='kk'?'Собери перевод на казахском':'Собери перевод на русском';
@@ -5153,11 +5179,15 @@ function mount(online=null) {
     renderCatalog();renderBuilder();renderProgress();
     const home=game.phase==='home',sentenceMode=game.phase==='sentences'||game.phase==='sentence-complete';
     const complete=game.phase==='complete'||game.phase==='sentence-complete';
-    $('lesson-mode').textContent=practice?'Тренировка · без монет':'Проверка · награды за ответы без ошибок';
+    $('lesson-mode').textContent=reviewMode?'Повторение · бесплатно':practice?'Тренировка · без монет':'Проверка · награды за ответы без ошибок';
     $('practice-actions').hidden=!practice||home||complete;
-    $('practice-to-check').hidden=!practice||!complete;
+    $('practice-to-check').hidden=!practice||!complete||reviewMode;
     const currentId=sentenceMode?game.sentenceGame?.task?.id:game.deck?.[game.index]?.id;
     $('practice-help-text').hidden=!practice||home||complete||helpId!==currentId;$('practice-help-text').textContent=helpText;
+    const reducedHelp=reviewMode&&reviewInitialSuccess[practiceKind+'_'+currentId]===1&&!reviewHelpOpen.has(currentId)&&!reviewHelp.has(currentId)&&!reviewShown.has(currentId)&&(game.phase==='sentences'?game.sentenceGame.taskErrors===0&&game.sentenceGame.translationErrors===0:game.cardErrors===0);
+    $('review-open-help').hidden=!reducedHelp||home||complete;$('practice-help').hidden=Boolean(reducedHelp);
+    $('practice-stop').textContent=reviewMode?'Завершить повторение':'Завершить тренировку';
+    $('practice-help').textContent=reviewMode&&reviewCycles[practiceKind+'_'+currentId]&&reviewStore.state[practiceKind+'_'+currentId]?.successes.length===1?'Открыть образец · бесплатно':'Показать образец · бесплатно';
     $('practice-help').disabled=complete||(sentenceMode?['translated','complete'].includes(game.sentenceGame?.phase):(game.phase==='feedback'&&game.correct));
     $('sentence-exercise').hidden=!sentenceMode||complete;
     $('exercise').hidden=home||complete||sentenceMode;
@@ -5167,7 +5197,7 @@ function mount(online=null) {
     if(home) { $(screen==='lessons'?'catalog-title':'home-title').focus();return; }
     const course=courseLessons[game.category],count=game.deck.length;
     $('back-home').textContent='К урокам';$('complete-home').textContent='К урокам';
-    $('topic').textContent=course?.name || categories[game.category].name;
+    $('topic').textContent=reviewMode?`Повторение · ${courseModules.find(m=>m.id===selectedModule).name}`:course?.name || categories[game.category].name;
     $('progress-bar').max=count*2;
     $('progress').textContent=complete?`${count} из ${count} понятий`:`Слово ${game.index+1} из ${count} · этап ${game.stage+1} из 2`;
     $('progress-bar').value=complete?count*2:game.index*2+game.stage;
@@ -5188,6 +5218,7 @@ function mount(online=null) {
       $('assistance-result').textContent=sentenceMode?`Без помощи: ${score.independentTranslations}; с помощью: ${score.assistedTranslations}; показан ответ: ${score.revealedTranslations}.`:'';
       $('errors-result').textContent=`Ошибок: ${score.errors}`;
       if(practice){const finished=practiceStopped?practiceCompleted:count;$('progress').textContent=`Выполнено ${finished} из ${count} заданий`;$('progress-bar').value=finished*2;$('complete-title').textContent=practiceStopped?'Тренировка завершена':'Тренировка пройдена';$('complete-note').textContent=`Без монет. Образец использован: ${practiceUses}. Результаты проверки не изменены.`;$('unlock-message').hidden=true;$('to-sentences').hidden=true;$('restart').textContent='Повторить тренировку';}
+      if(reviewMode){$('complete-title').textContent='Повторение завершено';$('complete-note').textContent=`Выполнено ${reviewDone.size} из ${count}. Самостоятельно: ${reviewClean}; с помощью: ${[...reviewDone].filter(id=>reviewHelp.has(id)&&!reviewShown.has(id)).length}; показан ответ: ${[...reviewDone].filter(id=>reviewShown.has(id)).length}; с ошибками без помощи: ${[...reviewDone].filter(id=>!reviewHelp.has(id)&&!reviewShown.has(id)).length-reviewClean}. Закреплено сейчас: ${Object.values(reviewStore.state).filter(r=>reviewDone.has(r.entry)&&r.kind===practiceKind&&r.successes.length===2).length}. Без монет.`;$('restart').textContent='Новое занятие';}
       $('complete-title').focus();return;
     }
     if(sentenceMode) {
@@ -5243,10 +5274,11 @@ function mount(online=null) {
   listen($('back-home'),'click',showLessons);
   listen($('complete-home'),'click',showLessons);
   listen($('restart'),'click',()=>{
+    if(reviewMode){const ids=reviewAPI.choose(reviewStore.state,courseEntries,selectedModule,practiceKind,Number($('review-size').value)||5);if(ids.length)startReview(practiceKind,ids);else showLessons();return;}
     if(practice){start(game.category,{practice:true,kind:practiceKind});return;}
-    if(game.phase==='sentence-complete') { game.startSentences();render(); } else start(game.category);
+    if(game.phase==='sentence-complete') { newReviewSession();game.startSentences();render(); } else start(game.category);
   });
-  listen($('to-sentences'),'click',()=>{game.startSentences();render();});
+  listen($('to-sentences'),'click',()=>{newReviewSession();game.startSentences();render();});
   listen($('translation-clear'),'click',()=>{game.sentenceGame?.clear();sentenceHelp.close();renderBuilder();$('translation-title').focus();});
   listen($('translation-check'),'click',()=>{
     if(!wallet.blocked)wallet.message='';

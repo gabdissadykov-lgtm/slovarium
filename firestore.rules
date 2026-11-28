@@ -94,6 +94,59 @@ service cloud.firestore {
     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wallet','activity']) && request.resource.data.activity == true &&
     childWallet(resource.data.wallet,request.resource.data.wallet));
    allow delete: if parent(family) && resource.data.get('deleting',false) == true;
+   function reviewKey(d) {return d.kind+'_'+d.entry;}
+   function reviewEventKey(d) {return reviewKey(d)+'_'+d.session+'_'+d.type;}
+   function reviewEventShape(e) {
+    return e.keys().hasOnly(['kind','entry','session','type','reason','cycle','oralIndex','revision','accessVersion','updatedAt']) &&
+     e.kind in ['words','sentences'] && known(e.entry) && e.session is string && e.session.matches('[A-Za-z0-9-]{1,80}') &&
+     e.cycle is string && e.cycle.size()<220 && e.oralIndex is int && e.revision is int && e.revision>0 &&
+     e.accessVersion==generation(getAfter(/databases/$(database)/documents/families/$(family)/children/$(child)).data) && e.updatedAt==request.time &&
+     ((e.type=='bad' && e.reason in ['error','help','reveal','oral']) || (e.type=='ok' && e.reason=='success') ||
+      (e.type=='manual' && e.reason=='manual') || (e.type=='practice' && e.reason=='practice'));
+   }
+   function oralReviewEvent(e) {
+    let c=get(/databases/$(database)/documents/families/$(family)/children/$(child)/checks/$(e.session)).data;
+    return parent(family) && e.kind=='words' && e.type=='bad' && e.reason=='oral' && c.reviewVersion==1 && c.status=='completed' &&
+     e.oralIndex>=0 && e.oralIndex<c.grades.size() && c.grades[e.oralIndex]>0 && c.tasks[e.oralIndex].entry==e.entry;
+   }
+   function reviewWriter(e) {
+    return activeProfile(family,child) && activeAfter(family,child) &&
+     ((ownChild(family,child) && e.reason!='oral' && e.oralIndex == -1) || oralReviewEvent(e));
+   }
+   function reviewBase(e) {return {'kind':e.kind,'entry':e.entry,'cycle':'','successes':[],'failures':0,'reasons':[],'revision':0,'lastEvent':''};}
+   function expectedReview(o,e,eid,bad) {
+    let active=o.cycle!='' && o.successes.size()<2;
+    let reset=e.type=='bad' || (e.type=='manual' && !active);
+    let success=e.type=='ok' && active && e.cycle==o.cycle && !bad && !(e.session in o.successes);
+    return {'kind':e.kind,'entry':e.entry,'cycle':reset?eid:o.cycle,'successes':reset?[]:(success?o.successes.concat([e.session]):o.successes),
+     'failures':o.failures+((e.type=='bad' || (e.type=='practice' && active))?1:0),
+     'reasons':e.type!='ok' && !(e.reason in o.reasons)?o.reasons.concat([e.reason]):o.reasons,
+     'revision':o.revision+1,'lastEvent':eid,'accessVersion':e.accessVersion,'updatedAt':request.time};
+   }
+   function reviewTransition(rid) {
+    let n=request.resource.data;
+    let ep=/databases/$(database)/documents/families/$(family)/children/$(child)/reviewEvents/$(n.lastEvent);
+    let e=getAfter(ep).data;
+    let rp=/databases/$(database)/documents/families/$(family)/children/$(child)/review/$(rid);
+    let o=exists(rp)?get(rp).data:reviewBase(e);
+    let bad=exists(/databases/$(database)/documents/families/$(family)/children/$(child)/reviewEvents/$(reviewKey(e)+'_'+e.session+'_bad'));
+    return !exists(ep) && reviewEventShape(e) && reviewWriter(e) && rid==reviewKey(e) && n.lastEvent==reviewEventKey(e) &&
+     (e.type!='ok' || o.cycle!='') && (e.type!='practice' || (o.cycle!='' && o.successes.size()<2)) &&
+     e.revision==o.revision+1 && n==expectedReview(o,e,n.lastEvent,bad);
+   }
+   match /review/{record} {
+    allow read: if parent(family) || ownChild(family,child);
+    allow create, update: if reviewTransition(record);
+    allow delete: if parent(family) && deletingProfile(family,child);
+   }
+   match /reviewEvents/{event} {
+    allow read: if parent(family) || ownChild(family,child);
+    allow create: if reviewEventShape(request.resource.data) && reviewWriter(request.resource.data) && event==reviewEventKey(request.resource.data) &&
+     getAfter(/databases/$(database)/documents/families/$(family)/children/$(child)/review/$(reviewKey(request.resource.data))).data.lastEvent==event &&
+     getAfter(/databases/$(database)/documents/families/$(family)/children/$(child)/review/$(reviewKey(request.resource.data))).data.revision==request.resource.data.revision;
+    allow update: if false;
+    allow delete: if parent(family) && deletingProfile(family,child);
+   }
    match /preparation/{mark} {
     function validPreparation() {
      let d=request.resource.data;

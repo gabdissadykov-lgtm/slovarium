@@ -16,7 +16,7 @@ class LocalPreparation{
  emit(){for(const fn of this.listeners)fn();}
  get message(){return this.saved?'Подготовка сохранена в этом браузере':'Отметки не сохранены. Хранилище браузера недоступно.';}
 }
-function mount({document:doc,entries,lessons,tasks,modules,store}){
+function mount({document:doc,entries,lessons,tasks,modules,store,onRepeat}){
  const $=id=>doc.getElementById(id),listeners=[],names={en:'English',kk:'Қазақша',ru:'Русский'};
  let moduleId=1,kind='words',lessonId='',language='en',onlyLearning=false,index=0,revealed=false,order=null,target='kk',picked=[],feedback='',poolKey=null,poolOrder=[];
  function listen(id,event,fn){$(id).addEventListener(event,fn);listeners.push(()=>$(id).removeEventListener?.(event,fn));}
@@ -28,6 +28,7 @@ function mount({document:doc,entries,lessons,tasks,modules,store}){
   $('material-status').textContent=store.message;
   $('material-position').textContent=item?`${index+1} из ${list.length} · ${kind==='words'?'слова':'предложения'}`:'Всё отмечено как «Запомнил». Вернись к списку всех материалов.';
   $('material-source-label').hidden=kind!=='words';$('material-target-label').hidden=kind!=='sentences';
+  if($('material-repeat'))$('material-repeat').disabled=!item;
   for(const id of ['material-reveal','material-learning','material-known','material-next','material-prev'])$(id).disabled=!item;
   $('material-prev').disabled=!item||index===0;$('material-next').disabled=!item||index===list.length-1;
   $('material-build').hidden=kind!=='sentences'||!item;
@@ -57,6 +58,7 @@ function mount({document:doc,entries,lessons,tasks,modules,store}){
   for(const lesson of Object.values(lessons).filter(l=>l.module===moduleId)){const o=doc.createElement('option');o.value=lesson.id;o.textContent=`Урок ${lesson.number} · ${lesson.sections.join(', ')}`;$('material-lesson').append(o);}
   $('material-lesson').value=lessonId;
  }
+ if($('material-repeat')&&onRepeat)listen('material-repeat','click',()=>{const item=items()[index];if(item){onRepeat(kind,item.id);$('material-status').textContent='Добавлено в повторение. '+store.message;}});
  listen('material-kind','change',()=>{kind=$('material-kind').value;reset();render();});
  listen('material-lesson','change',()=>{lessonId=$('material-lesson').value;reset();render();});
  listen('material-language','change',()=>{language=$('material-language').value;revealed=false;render();});
