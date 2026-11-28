@@ -4772,7 +4772,15 @@ function topicIllustration(id) {
 // View navigation never changes the active exercise or writes learning data.
 function initializeInterface() {
   const $=id=>document.getElementById(id),views=['welcome','learning','progress-view','wallet-view','settings-view'];
-  let current=null,returnView='learning',opener=null,ready=false,authenticated=false,parentName=null,topics=()=>{};
+  let current=null,returnView='learning',opener=null,ready=false,authenticated=false,parentName=null,childName='Локально',topics=()=>{};
+  function renderHeader(){
+    const cabinet=Boolean(parentName)&&['settings-view','welcome'].includes(current);
+    const label=cabinet?parentName:childName;
+    $('profile-button').textContent=label;$('profile-button').title=label;
+    $('app-nav').hidden=!ready||current==='welcome'||cabinet;
+    $('header-balance').hidden=!ready||current==='welcome'||cabinet;
+    $('parent-cabinet-return').hidden=!parentName||cabinet;
+  }
   function open(view,trigger) {
     if(!views.includes(view)||(!ready&&!['settings-view','welcome'].includes(view)))return;
     if(current===view)return;
@@ -4784,12 +4792,12 @@ function initializeInterface() {
     }
     $('word-tooltip').hidden=true;
     current=view;
-    $('parent-cabinet-return').hidden=!parentName||view==='settings-view'||view==='welcome';
+    renderHeader();
     for(const id of views)$(id).hidden=id!==view;
     $('welcome-nav').hidden=view!=='welcome';
-    $('app-nav').hidden=!ready||view==='welcome';
+
     $('header-login').hidden=authenticated||view!=='welcome';
-    $('header-balance').hidden=!ready||view==='welcome';
+
     $('profile-button').hidden=!authenticated&&Boolean(window.SlovariumOnline);
     for(const button of document.querySelectorAll('[data-view]')) {
       if(button.dataset.view===view)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
@@ -4826,13 +4834,13 @@ function initializeInterface() {
   mirrorStatus();
   return {open,onTopics(fn){topics=fn;},setReady(value=true){
       ready=value;for(const id of ['nav-learning','nav-progress','header-balance'])$(id).disabled=!value;
-      $('app-nav').hidden=!value||current==='welcome';$('header-balance').hidden=!value||current==='welcome';
+      renderHeader();
     },authenticated(value){
       authenticated=value;$('welcome-login-actions').hidden=value;$('welcome-resume').hidden=!value;
       $('header-login').hidden=value||current!=='welcome';$('profile-button').hidden=!value;
     },loginReady(value){for(const button of document.querySelectorAll('[data-login],#parent-login,#child-login'))button.disabled=!value;},
-    parent(name){parentName=name||null;$('parent-cabinet-return').hidden=!parentName||current==='settings-view'||current==='welcome';},
-    profile(name){const label=parentName||name;$('profile-button').textContent=label;$('profile-button').title=label;},mirrorStatus};
+    parent(name){parentName=name||null;renderHeader();},
+    profile(name){childName=name;renderHeader();},mirrorStatus};
 }
 
 function mount(online=null) {
