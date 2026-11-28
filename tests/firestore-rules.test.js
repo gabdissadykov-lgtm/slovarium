@@ -45,6 +45,17 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  // A new empty device can still attach to an existing active profile.
  const extraUid='extra-anonymous-device-123456789';ok(await write('devices/'+extraUid,{family:'',child:''},{uid:extraUid,provider:'anonymous'}));
  ok(await write('devices/'+extraUid,{family:parent,child:'atomic-child',accessVersion:0},owner));
+ // Self-assessment is isolated, typed, versioned and cannot change rewards/results.
+ const markPath=profile+'/preparation/words_m1-r001';
+ const mark={kind:'words',entry:'m1-r001',known:true,accessVersion:0};
+ const markWrite=(path,data,user)=>request(':commit','POST',{writes:[{update:{name:`projects/${project}/databases/(default)/documents/${path}`,fields:fields(data)},updateTransforms:[{fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'}]}]},user);
+ ok(await markWrite(markPath,mark,kid));ok(await read(markPath,kid));ok(await read(markPath,owner));
+ denied(await read(markPath,stranger));denied(await read(markPath));denied(await markWrite(markPath,mark,owner));
+ denied(await markWrite(markPath,{...mark,known:'yes'},kid));denied(await markWrite(markPath,{...mark,wallet},kid));denied(await markWrite(markPath,{...mark,accessVersion:9},kid));
+ denied(await markWrite(profile+'/preparation/words_fake',{...mark,entry:'fake'},kid));denied(await markWrite(profile+'/preparation/sentences_m1-r001',mark,kid));
+ denied(await write(markPath,{...mark,updatedAt:'fake-clock'},kid));
+ ok(await markWrite(profile+'/preparation/sentences_m1-r001',{...mark,kind:'sentences',known:false},kid));
+ denied(await request('/'+markPath,'DELETE',null,kid));denied(await request('/'+markPath,'DELETE',null,owner));
  // Oral checks: private plans, minimal current prompt, readiness-only child writes.
  const oralPrivate=profile+'/checks/session',oralLive=profile+'/checkLive/current';
  const invitation={session:'session',status:'waiting',step:0,total:10,ready:false,prompt:'house',from:'en',to:'kk',word:1};
@@ -66,7 +77,7 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  denied(await write(profile+'/exchanges/1',{amount:1,at:'test'},kid));
  denied(await write(profile,{archived:true},owner,true)); // Archive must revoke generation atomically.
  ok(await write(profile,{archived:true,accessVersion:1},owner,true));
- ok(await read(profile,owner));ok(await read(profile+'/results/m1-l1',owner));
+ ok(await read(profile,owner));ok(await read(profile+'/results/m1-l1',owner));denied(await read(markPath,kid));denied(await markWrite(markPath,mark,kid));
  denied(await read(oralLive,kid));denied(await write(oralLive,{step:1},owner,true));
  denied(await read(profile,kid));denied(await read(profile+'/results/m1-l1',kid));denied(await read(profile+'/exchanges/0',kid));
  denied(await write(profile,{wallet:{...rewarded,words:['m1-r001','m1-r002']},activity:true},kid,true));
@@ -105,6 +116,7 @@ test('Firestore Rules: family isolation, archived reads/writes, generation revoc
  ]},owner);denied(invalidLock);
  ok(await write(profile,{deleting:true,archived:true,accessVersion:2},owner,true));
  denied(await read(oralLive,kid));denied(await write(oralPrivate,{grades:[1]},owner,true));
+ ok(await request('/'+markPath,'DELETE',null,owner));ok(await request('/'+profile+'/preparation/sentences_m1-r001','DELETE',null,owner));
  ok(await request('/'+oralPrivate,'DELETE',null,owner));ok(await request('/'+oralLive,'DELETE',null,owner));
  denied(await read(profile,kid));denied(await read(profile+'/results',kid));
  denied(await write(profile,{deleting:false,archived:false,accessVersion:2},owner,true));

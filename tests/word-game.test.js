@@ -575,7 +575,7 @@ test('unified catalogue: exactly nine illustrated topic buttons, original names,
 test('catalogue selection survives returning from lessons and F5 without reopening a lesson',()=>{
  const {e,storage}=courseSession();e.modules.children[7].click();
  assert.equal(e['catalog-title'].textContent,'Sports');
- const inLessons=courseSession(storage).e;assert.equal(inLessons.modules.hidden,true);assert.equal(inLessons['course-lessons'].hidden,false);
+ const inLessons=courseSession(storage).e;assert.equal(inLessons.modules.hidden,true);assert.equal(inLessons['module-hub'].hidden,false);assert.equal(inLessons['course-lessons'].hidden,true);inLessons['module-check'].click();assert.equal(inLessons['course-lessons'].hidden,false);
  assert.equal(inLessons['catalog-title'].textContent,'Sports');
  inLessons['back-modules'].click();const restored=courseSession(storage).e;
  assert.equal(restored.modules.hidden,false);assert.equal(restored['course-lessons'].hidden,true);

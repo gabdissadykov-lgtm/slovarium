@@ -110,6 +110,7 @@ test('deletion: rename and cancel preserve data; permanent delete cleans all pag
  const back=backend(),family='parent-uid',child='child-1',uid='anonymous-uid-123456789012345';
  const path=`families/${family}/children/${child}`,wallet=model.addReward(model.emptyWallet(),'words',core.courseEntries[0].id);
  back.docs.set(path,{name:'Алия',wallet,activity:true});back.docs.set(path+'/results/m1-l1',{signature:'test'});
+ back.docs.set(path+'/preparation/words_m1-r001',{kind:'words',entry:'m1-r001',known:true,accessVersion:0});
  for(let i=0;i<205;i++)back.docs.set(path+'/exchanges/'+i,{amount:1});
  back.docs.set('devices/'+uid,{family,child});back.docs.set(`families/${family}/imports/fingerprint`,{child,createdAt:'date'});
  const other={name:'Другой ребёнок',wallet:model.emptyWallet(),activity:false};back.docs.set(`families/${family}/children/other`,other);
@@ -281,4 +282,20 @@ test('parent profile is observation-only: no learning action, no answer recordin
  parent.active.wallet.reward('words','m1-r001');parent.active.progress.record('m1-l1','cards',{total:20,firstTryCorrect:20,errors:0});await settle();
  assert.equal(back.docs.get(path).wallet.words.length,0);assert.equal(back.docs.has(path+'/results/m1-l1'),false);
  buttonIn(parent.elements['child-profile-actions'],'Прогресс').click();assert.equal(parent.elements['progress-view'].hidden,false);
+});
+
+test('preparation marks: offline queue, two devices, separate records, loss of acknowledgement and parent read-only',async()=>{
+ const back=backend(),family='parent-uid',child='child-1',path=`families/${family}/children/${child}`,uid='anonymous-uid-123456789012345';back.docs.set(path,{name:'Әлия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
+ const a=await session(back,{uid,isAnonymous:true}),b=await session(back,{uid,isAnonymous:true});
+ a.context.navigator.onLine=false;a.active.preparation.set('words','m1-r001',true);assert.match(a.active.preparation.message,/Нет сети/);assert.equal(back.docs.has(path+'/preparation/words_m1-r001'),false);
+ b.active.preparation.set('sentences','m1-r002',true);await settle();a.context.navigator.onLine=true;a.events.online();await settle();
+ assert.equal(a.active.preparation.getKnown('sentences','m1-r002'),true);assert.equal(b.active.preparation.getKnown('words','m1-r001'),true);assert.equal(back.docs.get(path).wallet.words.length,0);assert.equal(back.docs.get(path).activity,false);
+ back.controls.loseNextAck=true;a.active.preparation.set('words','m1-r001',false);await settle();assert.match(a.active.preparation.message,/ожидают/);a.events.online();await settle();assert.equal(back.docs.get(path+'/preparation/words_m1-r001').known,false);
+ const parent=await session(back,{uid:family,isAnonymous:false});await openChild(parent,'Әлия');assert.equal(parent.active.preparation.getKnown('sentences','m1-r002'),true);parent.active.preparation.set('sentences','m1-r002',false);await settle();assert.equal(back.docs.get(path+'/preparation/sentences_m1-r002').known,true);
+});
+test('preparation queues survive F5, reject invalid entries and cannot be sent after access revocation',async()=>{
+ const back=backend(),family='parent-uid',child='child-1',path=`families/${family}/children/${child}`,uid='anonymous-uid-123456789012345',local=storage();back.docs.set(path,{name:'Әлия',wallet:model.emptyWallet(),activity:false});back.docs.set('devices/'+uid,{family,child});
+ const a=await session(back,{uid,isAnonymous:true},{local});a.context.navigator.onLine=false;a.active.preparation.set('words','fake',true);a.active.preparation.set('words','m1-r001',true);
+ const reload=await session(back,{uid,isAnonymous:true},{local});await settle();assert.equal(back.docs.get(path+'/preparation/words_m1-r001').known,true);assert.equal(back.docs.has(path+'/preparation/words_fake'),false);
+ reload.context.navigator.onLine=false;reload.active.preparation.set('sentences','m1-r001',true);back.docs.set(path,{...back.docs.get(path),archived:true,accessVersion:1});back.notify();await settle();reload.context.navigator.onLine=true;reload.events.online();await settle();assert.equal(back.docs.has(path+'/preparation/sentences_m1-r001'),false);
 });

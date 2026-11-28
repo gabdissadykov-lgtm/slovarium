@@ -63,7 +63,7 @@ async function startCloud(){
   oralStop?.();oralStop=null;
   if(purge&&selected)purgeProfileCache(selected);
   if(active){active.wallet.blocked=true;active.wallet.saved=false;}
-  active?.dispose?.();active=null;mounted=false;detailId=null;window.SlovariumUI?.detail?.(null);queue={rewards:[],results:{}};importData=null;
+  active?.dispose?.();active=null;mounted=false;detailId=null;window.SlovariumUI?.detail?.(null);queue={rewards:[],results:{},preparation:{}};importData=null;
   $('import-preview').hidden=true;$('import-file').value='';
   $('backup-export').disabled=true;closeEditors();
   profileListeners.forEach(stop=>stop());profileListeners=[];
@@ -88,10 +88,11 @@ async function startCloud(){
  }
  function repaint(){active?.repaint?.();window.SlovariumUI?.refreshHeader?.();}
  function persistQueue(){try{localStorage.setItem(queueKey,JSON.stringify({...queue,accessVersion:profileVersion}));queueDurable=true;}catch{queueDurable=false;status('Очередь не сохранена в браузере. Не закрывайте страницу до восстановления связи.');}}
- function queueCount(){return queue?queue.rewards.length+Object.keys(queue.results).length:0;}
+ function queueCount(){return queue?queue.rewards.length+Object.keys(queue.results).length+Object.keys(queue.preparation||{}).length:0;}
  function syncStatus(){
   if(!active||active.wallet.blocked)return;
   active.wallet.saved=navigator.onLine&&queueCount()===0;
+  active.preparation?.emit();
   const pending=queueCount();
   if(!queueDurable)status('Очередь не сохранена в браузере. Не закрывайте страницу до отправки.');
   else status(!navigator.onLine?`Нет связи. Ожидают отправки: ${pending}`:pending?`Сохраняем. Ожидают отправки: ${pending}`:'Сохранено');
@@ -118,6 +119,15 @@ async function startCloud(){
     // Do not drop a better attempt queued while this request was running.
     if(active!==owner)return;
     if(queue.results[lesson]===candidate)delete queue.results[lesson];persistQueue();
+   }
+   for(const id of Object.keys(queue.preparation||{})){
+    const mark=queue.preparation[id];
+    await F.runTransaction(db,async tx=>{
+     const profile=await tx.get(childRef(ownerFamily,ownerChild));if(!profile.exists())throw Error('Профиль не найден');model.requireActive(profile.data(),expected);
+     tx.set(F.doc(db,'families',ownerFamily,'children',ownerChild,'preparation',id),{...mark,accessVersion:expected,updatedAt:F.serverTimestamp()});
+    });
+    if(active!==owner)return;
+    if(queue.preparation[id]===mark)delete queue.preparation[id];persistQueue();
    }
    syncStatus();
   }catch(e){fail(e);if(active)active.wallet.saved=false;repaint();}
@@ -184,13 +194,14 @@ async function startCloud(){
  function mountProfile(data){
   mounted=true;profileVersion=model.accessVersion(data);
   queueKey=`slovarium.pending:${auth.currentUser.uid}:${family}:${selected}${profileVersion?`:v${profileVersion}`:''}`;
-  queue={rewards:[],results:{}};
+  queue={rewards:[],results:{},preparation:{}};
   try{
    const old=role==='child'?JSON.parse(localStorage.getItem(queueKey)):null;
    if(old){
     if((old.accessVersion??0)!==profileVersion||!Array.isArray(old.rewards)||!old.results||typeof old.results!=='object')throw Error('invalid queue');
     queue.rewards=old.rewards.filter(r=>['words','sentences'].includes(r.kind)&&(r.kind==='words'?core.courseEntries:core.assemblyTasks).some(t=>t.id===r.id));
     queue.results=cleanCourse({version:2,results:old.results}).results;
+    for(const [id,mark]of Object.entries(old.preparation||{}))if(validPreparation(id,mark))queue.preparation[id]={kind:mark.kind,entry:mark.entry,known:mark.known};
    }
   }catch{status('Очередь повреждена или хранилище недоступно. Не закрывайте страницу; новые результаты могут не сохраниться локально.');queueDurable=false;}
   const wallet={state:withHistory(data.wallet),raw:'cloud',saved:false,blocked:false,message:'',get earned(){return model.earned(this.state);},get balance(){return model.balance(this.state);},reward(kind,id){if(active?.wallet!==this||this.blocked)return;queueReward(kind,id);},
@@ -216,8 +227,23 @@ async function startCloud(){
     if(this.cloudReady&&JSON.stringify(this.results[id])!==before){queue.results[id]=JSON.parse(JSON.stringify(this.results[id]));persistQueue();syncStatus();void flush();}
    }
   }
-  const progress=new OnlineProgress();active={wallet,progress,role,userUid:auth.currentUser.uid};owner=active;
+  const preparation={state:{},seen:false,listeners:new Set(),
+   getKnown(kind,entry){return this.state[`${kind}_${entry}`]?.known===true;},
+   get message(){return !this.seen?'Загружаем подготовку…':!queueDurable?'Отметки не сохранены в браузере. Не закрывайте страницу.':!navigator.onLine?'Нет сети. Отметки ожидают сохранения.':Object.keys(queue.preparation).length?'Отметки ожидают облачного сохранения':'Подготовка сохранена в облаке';},
+   watch(fn){this.listeners.add(fn);return ()=>this.listeners.delete(fn);},emit(){for(const fn of this.listeners)fn();},
+   set(kind,entry,known){
+    const id=`${kind}_${entry}`,mark={kind,entry,known};if(role!=='child'||active!==owner||wallet.blocked||!validPreparation(id,mark))return;
+    queue.preparation[id]=mark;this.state[id]=mark;persistQueue();syncStatus();void flush();
+   }
+  };
+  const progress=new OnlineProgress();active={wallet,progress,preparation,role,userUid:auth.currentUser.uid};owner=active;
   core.mount(active);$('backup-export').disabled=false;document.querySelector('.wallet[aria-labelledby="wallet-title"]').hidden=false;
+  profileListeners.push(F.onSnapshot(F.collection(db,'families',family,'children',selected,'preparation'),snap=>{
+   if(active!==owner)return;
+   const next={};for(const d of snap.docs)if(validPreparation(d.id,d.data()))next[d.id]=d.data();
+   for(const [id,mark]of Object.entries(queue.preparation))next[id]=mark;
+   preparation.state=next;preparation.seen=!snap.metadata?.fromCache;preparation.emit();
+  },e=>{if(active===owner){preparation.seen=false;preparation.emit();fail(e);}}));
   profileListeners.push(F.onSnapshot(F.collection(db,'families',family,'children',selected,'results'),snap=>{
    for(const d of snap.docs){const cleaned=cleanCourse({version:2,results:{[d.id]:d.data()}}).results[d.id];if(cleaned)progress.results[d.id]=model.mergeResults(progress.results[d.id]||{},cleaned);}
    repaint();
@@ -226,6 +252,7 @@ async function startCloud(){
   oralStop?.();oralStop=window.SlovariumOral.mount({F,db,family,child:selected,role,core,onError:fail});
   syncStatus();void flush();
  }
+ function validPreparation(id,value){return value&&['words','sentences'].includes(value.kind)&&typeof value.known==='boolean'&&id===`${value.kind}_${value.entry}`&&core.courseEntries.some(e=>e.id===value.entry);}
  function cleanCourse(value){
   const store={getItem:()=>JSON.stringify(value),setItem(){}};return new core.CourseProgress(store).data();
  }
@@ -239,7 +266,7 @@ async function startCloud(){
  }
  function renderDetails(){
   const child=children.find(c=>c.id===detailId);
-  if(role!=='parent'||!child){$('profile-tools').hidden=true;return;}
+  if(role!=='parent'||!child){$('profile-tools').hidden=true;$('child-preparation-summary').hidden=true;return;}
   if(deleteId===child.id&&deleteName!==child.name)closeEditors();
   window.SlovariumUI?.detail?.({name:child.name,balance:model.balance(child.wallet),available:model.isActive(child)&&selected===child.id&&Boolean(active)});
   $('child-profile-title').textContent=child.name;$('profile-name').textContent='Устройства и перенос прогресса';
@@ -254,7 +281,7 @@ async function startCloud(){
   }
   const remove=participantButton(child.deleting?'Продолжить удаление':'Удалить ребёнка',()=>askDelete(child));remove.className+=' danger-link';actions.append(remove);
   for(const button of actions.children)button.disabled=participantBusy;
-  $('profile-tools').hidden=!live;$('oral-check').hidden=!live;$('backup-tools').hidden=!live;
+  $('profile-tools').hidden=!live;$('child-preparation-summary').hidden=!live;$('oral-check').hidden=!live;$('backup-tools').hidden=!live;
  }
  function renderChildren(){
   $('family-children').replaceChildren();$('archived-children').replaceChildren();$('deleting-children').replaceChildren();
@@ -287,7 +314,7 @@ async function startCloud(){
    });
    const cacheClean=purgeProfileCache(id);
    // All child-owned collections, including oral assessment history.
-   for(const name of ['results','exchanges','checks','checkLive']){
+   for(const name of ['results','exchanges','checks','checkLive','preparation']){
     while(true){
      const snap=await F.getDocsFromServer(F.query(F.collection(db,'families',ownerFamily,'children',id,name),F.limit(100)));
      if(!snap.docs.length)break;
@@ -345,9 +372,9 @@ async function startCloud(){
   try{await (parent?A.signInWithPopup(auth,new A.GoogleAuthProvider()):A.signInAnonymously(auth));}catch(e){fail(e);}finally{loginBusy=false;window.SlovariumUI?.loginReady(true);}
  }
  window.SlovariumUI?.onView?.(view=>{
-  if(role==='parent'&&(view==='settings-view'||view==='welcome')){detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);$('profile-tools').hidden=true;$('oral-check').hidden=true;$('backup-tools').hidden=true;}
+  if(role==='parent'&&(view==='settings-view'||view==='welcome')){detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);$('profile-tools').hidden=true;$('child-preparation-summary').hidden=true;$('oral-check').hidden=true;$('backup-tools').hidden=true;}
  });
- $('profile-cabinet-return').onclick=()=>{detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);$('profile-tools').hidden=true;$('oral-check').hidden=true;$('backup-tools').hidden=true;window.SlovariumUI?.open('settings-view');};
+ $('profile-cabinet-return').onclick=()=>{detailId=null;closeEditors();window.SlovariumUI?.detail?.(null);$('profile-tools').hidden=true;$('child-preparation-summary').hidden=true;$('oral-check').hidden=true;$('backup-tools').hidden=true;window.SlovariumUI?.open('settings-view');};
  $('parent-login').onclick=()=>login(true);
  $('child-login').onclick=()=>login(false);
  $('account-signout').onclick=()=>guarded(async()=>{
